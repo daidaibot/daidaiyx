@@ -1,16 +1,63 @@
 <view class="page">
-  <view class="bar" style="padding-top: {{statusBarHeight}}px;">
-    <view class="row">
-      <view class="back" bindtap="goBack">← 返回</view>
-      <view class="title">呆呆 AI</view>
-      <view class="open" bindtap="openBrowser">浏览器</view>
+  <view class="nav" style="padding-top: {{statusBarHeight}}px;">
+    <view class="nav-inner">
+      <view class="back" bindtap="goBack">‹</view>
+      <view class="nav-center">
+        <view class="nav-title">呆呆 AI</view>
+        <view class="nav-sub">{{statusText}}</view>
+      </view>
+      <view class="nav-spacer"></view>
     </view>
   </view>
 
-  <web-view wx:if="{{url}}" src="{{url}}"></web-view>
+  <scroll-view
+    class="msgs"
+    scroll-y
+    scroll-with-animation
+    scroll-into-view="{{scrollInto}}"
+    enhanced
+    show-scrollbar="{{false}}"
+  >
+    <view class="msgs-pad">
+      <block wx:for="{{messages}}" wx:key="id">
+        <view class="row {{item.role === 'user' ? 'mine' : 'ai'}}" id="m-{{item.id}}">
+          <view class="avatar {{item.role}}">{{item.role === 'user' ? '我' : '呆'}}</view>
+          <view class="bubble {{item.role}}">
+            <text class="bubble-text" user-select>{{item.content}}</text>
+          </view>
+        </view>
+      </block>
+      <view id="m-bottom" class="bottom-anchor"></view>
+    </view>
+  </scroll-view>
 
-  <view wx:else class="empty">
-    <view class="tip">链接加载中…</view>
-    <view class="sub">返回首页再进一次试试</view>
+  <view class="dock" wx:if="{{messages.length <= 1}}">
+    <view class="chips">
+      <view
+        class="chip"
+        wx:for="{{chips}}"
+        wx:key="id"
+        data-text="{{item.text}}"
+        bindtap="onChip"
+      >{{item.text}}</view>
+    </view>
+  </view>
+
+  <view class="composer">
+    <view class="composer-box">
+      <input
+        class="input"
+        value="{{input}}"
+        placeholder="有问题，尽管问"
+        confirm-type="send"
+        adjust-position
+        hold-keyboard
+        bindinput="onInput"
+        bindconfirm="onSend"
+        disabled="{{busy}}"
+      />
+      <view class="send {{canSend ? 'on' : ''}}" bindtap="onSend">发送</view>
+    </view>
+    <view class="safe"></view>
   </view>
 </view>

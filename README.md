@@ -2,6 +2,4 @@
 
 微信开发者工具导入：`miniprogram`
 
-点「进入呆呆 AI」即可（已指向我们自己的页面）。
-
-页面地址：https://daidaibot.github.io/daidaiyx/
+点「进入呆呆 AI」即可聊天（原生页面，不再依赖 web-view）。

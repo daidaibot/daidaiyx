@@ -6,7 +6,7 @@
   <view class="box {{ready ? 'in' : ''}}">
     <view class="brand">呆呆网络</view>
     <view class="line">AI · 豆包风</view>
-    <view class="desc">点一下就能聊，不用先部署。</view>
+    <view class="desc">点一下就能聊，不用网页，不用配域名。</view>
     <view class="btn" bindtap="enterChat">进入呆呆 AI</view>
   </view>
 
