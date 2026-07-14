@@ -1,19 +1,75 @@
-<view class="stage">
-  <view class="pad" style="height: {{statusBarHeight}}px;"></view>
-  <view class="title">主页方案预览</view>
-  <view class="sub">点开下面两个现成模板对比看看</view>
-
-  <view class="card a" bindtap="open2">
-    <view class="badge">方案 2</view>
-    <view class="name">ColorUI 品牌页</view>
-    <view class="desc">渐变头图 + 数据条 + 菜单入口</view>
+<!-- 呆呆网络 · 风格参考 dai520.cn -->
+<view class="root">
+  <!-- Splash -->
+  <view class="splash {{splashHide ? 'is-hidden' : ''}} {{splashLeaving ? 'is-leaving' : ''}}" bindtap="enterSite" wx:if="{{showSplash}}">
+    <view class="splash-scene">
+      <view class="splash-ring"></view>
+      <view class="splash-ring delay"></view>
+      <view class="splash-label">欢迎来访</view>
+      <view class="splash-brand">呆呆</view>
+      <view class="splash-line"></view>
+    </view>
+    <view class="splash-skip">点击任意处进入</view>
   </view>
 
-  <view class="card b" bindtap="open4">
-    <view class="badge">方案 4</view>
-    <view class="name">AI实用宝 工具箱</view>
-    <view class="desc">白底宫格入口，官方同款布局</view>
-  </view>
+  <!-- Page -->
+  <view class="page {{splashDone ? 'show' : ''}}">
+    <view class="nav" style="padding-top: {{statusBarHeight}}px;">
+      <view class="nav-inner">
+        <view class="nav-logo">呆呆</view>
+        <view class="nav-links">
+          <text class="nav-link" data-id="about" bindtap="scrollTo">关于</text>
+          <text class="nav-link" data-id="start" bindtap="goChat">开始</text>
+        </view>
+      </view>
+    </view>
 
-  <view class="chat" bindtap="openChat">先去聊呆呆 AI →</view>
+    <scroll-view
+      class="scroll"
+      scroll-y
+      enhanced
+      show-scrollbar="{{false}}"
+      scroll-into-view="{{scrollInto}}"
+      scroll-with-animation
+    >
+      <view class="hero" id="hero" style="padding-top: {{statusBarHeight + 56}}px;">
+        <view class="hero-brand {{inAnim ? 'in' : ''}}" style="animation-delay: 0s;">呆呆网络</view>
+        <view class="hero-tagline {{inAnim ? 'in' : ''}}" style="animation-delay: 0.08s;">Happy every day</view>
+        <view class="hero-actions {{inAnim ? 'in' : ''}}" style="animation-delay: 0.16s;">
+          <view class="btn btn-primary" bindtap="goChat">进入呆呆 AI</view>
+          <view class="btn btn-ghost" data-id="about" bindtap="scrollTo">了解更多</view>
+        </view>
+        <view class="scroll-hint {{inAnim ? 'in' : ''}}" data-id="about" bindtap="scrollTo">
+          <text class="scroll-text">下滑了解更多</text>
+          <text class="scroll-arrow">↓</text>
+        </view>
+      </view>
+
+      <view class="section" id="about">
+        <view class="section-label">关于</view>
+        <view class="section-title">关于呆呆</view>
+        <view class="about-grid">
+          <view class="glass-card" wx:for="{{cards}}" wx:key="title">
+            <view class="card-icon">{{item.icon}}</view>
+            <view class="card-title">{{item.title}}</view>
+            <view class="card-desc">{{item.desc}}</view>
+          </view>
+        </view>
+      </view>
+
+      <view class="section" id="start">
+        <view class="section-label">开始</view>
+        <view class="section-title">联系与体验</view>
+        <view class="contact-sub">期待与你一起玩转 AI · 点下面进入对话</view>
+        <view class="glass-card start-card">
+          <view class="card-title">呆呆 AI</view>
+          <view class="card-desc">豆包风对话 · 马上开聊</view>
+          <view class="btn btn-primary start-btn" bindtap="goChat">立即进入</view>
+        </view>
+      </view>
+
+      <view class="footer">© {{year}} 呆呆网络 · Crafted with passion.</view>
+      <view class="safe"></view>
+    </scroll-view>
+  </view>
 </view>

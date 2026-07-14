@@ -1,8 +1,6 @@
 {
   "pages": [
     "pages/index/index",
-    "pages/p2-colorui/index",
-    "pages/p4-aitools/index",
     "pages/chat/index"
   ],
   "window": {
@@ -10,10 +8,7 @@
     "navigationBarTitleText": "呆呆网络",
     "navigationBarBackgroundColor": "#ffffff",
     "navigationBarTextStyle": "black",
-    "backgroundColor": "#f9fafc"
-  },
-  "usingComponents": {
-    "cu-custom": "/colorui/components/cu-custom"
+    "backgroundColor": "#e8f5ec"
   },
   "style": "v2",
   "sitemapLocation": "sitemap.json"
