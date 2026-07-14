@@ -1,25 +1,24 @@
 <!-- 呆呆网络 · 风格参考 dai520.cn -->
 <view class="root">
-  <!-- Splash -->
-  <view class="splash {{splashHide ? 'is-hidden' : ''}} {{splashLeaving ? 'is-leaving' : ''}}" bindtap="enterSite" wx:if="{{showSplash}}">
-    <view class="splash-scene">
-      <view class="splash-ring"></view>
-      <view class="splash-ring delay"></view>
-      <view class="splash-label">欢迎来访</view>
-      <view class="splash-brand">呆呆</view>
-      <view class="splash-line"></view>
-    </view>
+  <!-- 开场：淡绿欢迎层，可点可自动消失 -->
+  <view
+    wx:if="{{showSplash}}"
+    class="splash {{splashLeaving ? 'leave' : ''}}"
+    bindtap="enterSite"
+  >
+    <view class="splash-label">欢迎来访</view>
+    <view class="splash-brand">呆呆</view>
+    <view class="splash-line"></view>
     <view class="splash-skip">点击任意处进入</view>
   </view>
 
-  <!-- Page -->
-  <view class="page {{splashDone ? 'show' : ''}}">
+  <view class="page">
     <view class="nav" style="padding-top: {{statusBarHeight}}px;">
       <view class="nav-inner">
         <view class="nav-logo">呆呆</view>
         <view class="nav-links">
           <text class="nav-link" data-id="about" bindtap="scrollTo">关于</text>
-          <text class="nav-link" data-id="start" bindtap="goChat">开始</text>
+          <text class="nav-link" bindtap="goChat">开始</text>
         </view>
       </view>
     </view>
@@ -27,19 +26,17 @@
     <scroll-view
       class="scroll"
       scroll-y
-      enhanced
-      show-scrollbar="{{false}}"
       scroll-into-view="{{scrollInto}}"
       scroll-with-animation
     >
-      <view class="hero" id="hero" style="padding-top: {{statusBarHeight + 56}}px;">
-        <view class="hero-brand {{inAnim ? 'in' : ''}}" style="animation-delay: 0s;">呆呆网络</view>
-        <view class="hero-tagline {{inAnim ? 'in' : ''}}" style="animation-delay: 0.08s;">Happy every day</view>
-        <view class="hero-actions {{inAnim ? 'in' : ''}}" style="animation-delay: 0.16s;">
+      <view class="hero" id="hero" style="padding-top: {{heroPadTop}}px;">
+        <view class="hero-brand">呆呆网络</view>
+        <view class="hero-tagline">Happy every day</view>
+        <view class="hero-actions">
           <view class="btn btn-primary" bindtap="goChat">进入呆呆 AI</view>
           <view class="btn btn-ghost" data-id="about" bindtap="scrollTo">了解更多</view>
         </view>
-        <view class="scroll-hint {{inAnim ? 'in' : ''}}" data-id="about" bindtap="scrollTo">
+        <view class="scroll-hint" data-id="about" bindtap="scrollTo">
           <text class="scroll-text">下滑了解更多</text>
           <text class="scroll-arrow">↓</text>
         </view>

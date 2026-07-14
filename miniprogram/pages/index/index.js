@@ -1,13 +1,11 @@
 Page({
   data: {
     statusBarHeight: 20,
+    heroPadTop: 76,
     showSplash: true,
     splashLeaving: false,
-    splashHide: false,
-    splashDone: false,
-    inAnim: false,
-    scrollInto: '',
     year: 2026,
+    scrollInto: '',
     cards: [
       { icon: '◈', title: 'AI 对话', desc: '随时问随时答，像豆包一样自然' },
       { icon: '◉', title: '多功能', desc: '一个入口，后续继续挂更多能力' },
@@ -15,25 +13,34 @@ Page({
     ],
   },
 
+  _timer: null,
+
   onLoad() {
     const info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
+    const statusBarHeight = info.statusBarHeight || 20;
     this.setData({
-      statusBarHeight: info.statusBarHeight || 20,
+      statusBarHeight,
+      heroPadTop: statusBarHeight + 56,
       year: new Date().getFullYear(),
     });
+    // 2 秒后自动进入，避免一直停在开场
+    this._timer = setTimeout(() => this.enterSite(), 2000);
+  },
+
+  onUnload() {
+    if (this._timer) clearTimeout(this._timer);
   },
 
   enterSite() {
-    if (this.data.splashLeaving || this.data.splashHide) return;
+    if (this.data.splashLeaving || !this.data.showSplash) return;
+    if (this._timer) {
+      clearTimeout(this._timer);
+      this._timer = null;
+    }
     this.setData({ splashLeaving: true });
     setTimeout(() => {
-      this.setData({
-        splashHide: true,
-        showSplash: false,
-        splashDone: true,
-        inAnim: true,
-      });
-    }, 700);
+      this.setData({ showSplash: false, splashLeaving: false });
+    }, 480);
   },
 
   scrollTo(e) {
