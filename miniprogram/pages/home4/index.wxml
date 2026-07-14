@@ -1,0 +1,40 @@
+<view class="page">
+  <view class="nav" style="padding-top: {{statusBarHeight}}px;">
+    <view class="nav-row">
+      <view class="back" bindtap="goBack">‹</view>
+      <view class="nav-title">方案 4 · AI实用宝</view>
+      <view class="spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view scroll-y class="body" enhanced show-scrollbar="{{false}}">
+    <view class="home-header">
+      <text class="header-title">AI工具箱</text>
+      <text class="header-subtitle">智能工具，一触即达</text>
+    </view>
+
+    <view class="grid-container">
+      <view
+        class="grid-item"
+        wx:for="{{tools}}"
+        wx:key="name"
+        bindtap="onTool"
+        data-name="{{item.name}}"
+      >
+        <view class="grid-item-content">
+          <view class="tool-icon-container">
+            <image class="tool-icon" src="{{item.icon}}" mode="aspectFit"></image>
+          </view>
+          <text class="tool-name">{{item.name}}</text>
+          <text class="tool-description">{{item.description}}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="footer">
+      <text class="footer-text">探索更多智能体验</text>
+      <view class="link" bindtap="goChat">进入呆呆 AI →</view>
+      <view class="link dim" bindtap="goHome2">对比方案 2 · ColorUI</view>
+    </view>
+  </scroll-view>
+</view>

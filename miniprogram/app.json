@@ -1,14 +1,19 @@
 {
   "pages": [
     "pages/index/index",
+    "pages/home2/index",
+    "pages/home4/index",
     "pages/chat/index"
   ],
   "window": {
     "navigationStyle": "custom",
     "navigationBarTitleText": "呆呆网络",
-    "navigationBarBackgroundColor": "#061018",
-    "navigationBarTextStyle": "white",
-    "backgroundColor": "#061018"
+    "navigationBarBackgroundColor": "#ffffff",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f9fafc"
+  },
+  "usingComponents": {
+    "cu-custom": "/colorui/components/cu-custom"
   },
   "style": "v2",
   "sitemapLocation": "sitemap.json"

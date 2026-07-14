@@ -1,0 +1,57 @@
+<cu-custom bgColor="bg-gradual-green" isBack="{{true}}">
+  <view slot="backText">返回</view>
+  <view slot="content">方案 2 · ColorUI</view>
+</cu-custom>
+
+<scroll-view scroll-y class="scrollPage">
+  <view class="UCenter-bg">
+    <view class="brand-logo">呆</view>
+    <view class="text-xl">呆呆网络
+      <text class="text-df"> AI</text>
+    </view>
+    <view class="margin-top-sm">
+      <text>多功能 · 一个入口</text>
+    </view>
+    <view class="gif-wave"></view>
+  </view>
+
+  <view class="padding flex text-center text-grey bg-white shadow-warp">
+    <view class="flex flex-sub flex-direction solid-right">
+      <view class="text-xxl text-orange">{{visitTotal}}</view>
+      <view class="margin-top-sm"><text class="cuIcon-attentionfill"></text> View</view>
+    </view>
+    <view class="flex flex-sub flex-direction solid-right">
+      <view class="text-xxl text-blue">{{starCount}}</view>
+      <view class="margin-top-sm"><text class="cuIcon-favorfill"></text> Star</view>
+    </view>
+    <view class="flex flex-sub flex-direction">
+      <view class="text-xxl text-green">{{forksCount}}</view>
+      <view class="margin-top-sm"><text class="cuIcon-fork"></text> AI</view>
+    </view>
+  </view>
+
+  <view class="cu-list menu card-menu margin-top-xl margin-bottom-sm shadow-lg radius">
+    <view class="cu-item arrow" bindtap="goChat">
+      <view class="content">
+        <text class="cuIcon-messagefill text-blue"></text>
+        <text class="text-grey">进入呆呆 AI</text>
+      </view>
+    </view>
+    <view class="cu-item arrow" bindtap="goHome4">
+      <view class="content">
+        <text class="cuIcon-appreciatefill text-orange"></text>
+        <text class="text-grey">对比方案 4 · AI工具箱</text>
+      </view>
+    </view>
+    <view class="cu-item arrow" bindtap="goIndex">
+      <view class="content">
+        <text class="cuIcon-homefill text-green"></text>
+        <text class="text-grey">返回预览首页</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="text-center text-grey text-sm padding-bottom">
+    基于 ColorUI 现成关于页 · 已换成呆呆网络
+  </view>
+</scroll-view>

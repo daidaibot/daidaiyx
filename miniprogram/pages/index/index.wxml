@@ -1,14 +1,19 @@
 <view class="stage">
-  <view class="glow a"></view>
-  <view class="glow b"></view>
   <view class="pad" style="height: {{statusBarHeight}}px;"></view>
+  <view class="title">主页方案预览</view>
+  <view class="sub">点开下面两个现成模板对比看看</view>
 
-  <view class="box {{ready ? 'in' : ''}}">
-    <view class="brand">呆呆网络</view>
-    <view class="line">AI · 豆包风</view>
-    <view class="desc">点一下就能聊，不用网页，不用配域名。</view>
-    <view class="btn" bindtap="enterChat">进入呆呆 AI</view>
+  <view class="card a" bindtap="open2">
+    <view class="badge">方案 2</view>
+    <view class="name">ColorUI 品牌页</view>
+    <view class="desc">渐变头图 + 数据条 + 菜单入口</view>
   </view>
 
-  <view class="foot">DAIDAI · AI</view>
+  <view class="card b" bindtap="open4">
+    <view class="badge">方案 4</view>
+    <view class="name">AI实用宝 工具箱</view>
+    <view class="desc">白底宫格入口，官方同款布局</view>
+  </view>
+
+  <view class="chat" bindtap="openChat">先去聊呆呆 AI →</view>
 </view>
