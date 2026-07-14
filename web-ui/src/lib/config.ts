@@ -9,35 +9,16 @@ export interface AppConfig {
   demoMode: boolean;
 }
 
-function getEnvVar(name: string, defaultValue: string): string {
-  const env = import.meta.env as Record<string, string | undefined>;
-  return env[name] || defaultValue;
-}
-
-function getViteEnv() {
-  const env = import.meta.env as {
-    DEV?: boolean;
-    PROD?: boolean;
-    MODE?: string;
-  };
-  return {
-    DEV: Boolean(env.DEV),
-    PROD: Boolean(env.PROD),
-    MODE: String(env.MODE || 'development'),
-  };
-}
-
-const viteEnv = getViteEnv();
-
 export const appConfig: AppConfig = {
-  chatEndpoint: getEnvVar('VITE_CHAT_ENDPOINT', '/api/chat'),
-  healthEndpoint: getEnvVar('VITE_HEALTH_ENDPOINT', '/api/chat/health'),
-  model: getEnvVar('VITE_CHAT_MODEL', 'deepseek-chat'),
-  isDevelopment: viteEnv.DEV,
-  isProduction: viteEnv.PROD,
+  // 必须静态访问 import.meta.env.VITE_*，Vite 才会在构建时注入
+  chatEndpoint: import.meta.env.VITE_CHAT_ENDPOINT || '/api/chat',
+  healthEndpoint: import.meta.env.VITE_HEALTH_ENDPOINT || '/api/chat/health',
+  model: import.meta.env.VITE_CHAT_MODEL || 'deepseek-chat',
+  isDevelopment: Boolean(import.meta.env.DEV),
+  isProduction: Boolean(import.meta.env.PROD),
   brand: '呆呆网络',
-  // GitHub Pages / 无后端时开启本地演示回复
-  demoMode: getEnvVar('VITE_DEMO_MODE', 'false') === 'true',
+  // 默认开演示（GitHub Pages 无后端也能聊）；云托管构建时设 VITE_DEMO_MODE=false
+  demoMode: (import.meta.env.VITE_DEMO_MODE ?? 'true') === 'true',
 };
 
 export default appConfig;
