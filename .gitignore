@@ -3,4 +3,7 @@
 .DS_Store
 npm-debug.log
 _vendor_agent_ui/
+_candidates/
+chatgptmp_preview/
+nextchat/
 daidaiyx-deploy.zip

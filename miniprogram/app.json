@@ -1,20 +1,15 @@
 {
   "pages": [
     "pages/index/index",
-    "pages/ai/index"
+    "pages/chat/index"
   ],
   "window": {
     "navigationStyle": "custom",
     "navigationBarTitleText": "呆呆网络",
     "navigationBarBackgroundColor": "#061018",
     "navigationBarTextStyle": "white",
-    "backgroundColor": "#061018",
-    "backgroundTextStyle": "light"
+    "backgroundColor": "#061018"
   },
   "style": "v2",
-  "sitemapLocation": "sitemap.json",
-  "lazyCodeLoading": "requiredComponents",
-  "networkTimeout": {
-    "request": 300000
-  }
+  "sitemapLocation": "sitemap.json"
 }

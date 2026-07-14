@@ -1,20 +1,14 @@
 <view class="stage">
-  <view class="glow glow-a"></view>
-  <view class="glow glow-b"></view>
-  <view class="grain"></view>
+  <view class="glow a"></view>
+  <view class="glow b"></view>
+  <view class="pad" style="height: {{statusBarHeight}}px;"></view>
 
-  <view class="status-pad" style="height: {{statusBarHeight}}px;"></view>
-
-  <view class="compose {{ready ? 'in' : ''}}">
+  <view class="box {{ready ? 'in' : ''}}">
     <view class="brand">呆呆网络</view>
-    <view class="headline">把复杂留给系统，把灵感留给你。</view>
-    <view class="lead">一个入口，接入你的私人 AI 助手。</view>
-
-    <view class="cta" bindtap="enterAi" hover-class="cta-hover">
-      <text>进入呆呆 AI</text>
-      <text class="arrow">→</text>
-    </view>
+    <view class="line">高级 AI 助理</view>
+    <view class="desc">界面来自开源 NextChat，一键进入对话。</view>
+    <view class="btn" bindtap="enterChat">进入呆呆 AI</view>
   </view>
 
-  <view class="floor">DAIDAI NETWORK</view>
+  <view class="foot">POWERED BY NEXTCHAT</view>
 </view>

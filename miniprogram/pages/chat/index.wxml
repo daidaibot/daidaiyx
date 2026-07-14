@@ -1,0 +1,16 @@
+<view class="page">
+  <view class="bar" style="padding-top: {{statusBarHeight}}px;">
+    <view class="row">
+      <view class="back" bindtap="goBack">← 返回</view>
+      <view class="title">呆呆 AI</view>
+      <view class="open" bindtap="openBrowser">浏览器</view>
+    </view>
+  </view>
+
+  <web-view wx:if="{{url}}" src="{{url}}"></web-view>
+
+  <view wx:else class="empty">
+    <view class="tip">还未配置 NextChat 地址</view>
+    <view class="sub">请在 miniprogram/app.js 填写 globalData.aiUrl</view>
+  </view>
+</view>

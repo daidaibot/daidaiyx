@@ -1,6 +1,6 @@
 page {
   height: 100%;
-  color: #edf3f8;
   background: #061018;
-  font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  color: #edf3f8;
+  font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
 }
