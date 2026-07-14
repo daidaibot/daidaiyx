@@ -1,5 +1,0 @@
-<view class="page">
-  <view class="title">接星小游戏</view>
-  <view class="desc">游戏跑在云托管网页里。填好域名后点下方打开。</view>
-  <button class="btn" bindtap="openGame">打开游戏</button>
-</view>

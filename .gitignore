@@ -1,4 +1,6 @@
-node_modules/
+﻿node_modules/
 *.zip
 .DS_Store
 npm-debug.log
+_vendor_agent_ui/
+daidaiyx-deploy.zip

@@ -1,41 +1,27 @@
-# 呆呆网络 · 微信小程序 + 云托管 AI
+# 呆呆网络 · 微信小程序 AI
 
-这是**微信小程序项目**，不是网页版 Dify。
+用的是腾讯官方开源组件：
+[TencentCloudBase/cloudbase-agent-ui](https://github.com/TencentCloudBase/cloudbase-agent-ui)
 
-## 目录
+流式输出、Markdown、多会话、语音、上传 —— 微信小程序里更好看的 AI 方案。
 
-- `miniprogram/`：微信开发者工具打开这个目录
-- `server.js`：微信云托管 Express 后端（含 `/api/chat`）
-- `public/`：云托管上的接星小游戏网页
+## 打开方式
 
-## 上线 AI（小程序内）
+微信开发者工具 → 导入项目 → 目录选：
 
-### 1. 云托管重新发布后端
+`miniprogram/`
 
-绑定仓库 `daidaibot/daidaiyx` 分支 `main`，端口 `80`，发布。
+## 必做配置（一次）
 
-在云托管 → 服务设置 → **环境变量** 增加（二选一）：
+1. 开发者工具顶部点 **云开发** → 开通环境，复制 **环境 ID**
+2. 打开 `miniprogram/app.js`，把 `YOUR_CLOUDBASE_ENV_ID` 换成真实环境 ID
+3. 打开 [云开发平台 AI](https://tcb.cloud.tencent.com/dev) → 接入大模型 → 填你的 **DeepSeek / 其他 Key**
+4. 编译预览，即可对话
 
-- `DEEPSEEK_API_KEY=你的key`
-- 或 `OPENAI_API_KEY=你的key`
+当前默认：`chatMode: model` + DeepSeek。  
+若要用云开发 Agent，把 `pages/ai/index.js` 里改成 `chatMode: 'bot'` 并填 `botId`。
 
-可选：`AI_MODEL=deepseek-chat`
+## 说明
 
-**Key 不要写进代码、不要发聊天。**
-
-### 2. 微信开发者工具
-
-1. 导入项目，目录选：`miniprogram/`
-2. AppID 可先用测试号，有正式号再替换 `project.config.json`
-3. 打开 `miniprogram/app.js`，填：
-
-```js
-apiBase: 'https://你的云托管公网域名'
-```
-
-4. 详情 → 本地设置 → 勾选「不校验合法域名」（开发阶段）
-5. 正式版要把该域名加到小程序后台「request 合法域名」
-
-### 3. 使用
-
-小程序首页 → **呆呆 AI** → 发送消息即可。
+- AI 走 **微信云开发 AI**，不走原来的 Express 小游戏服务
+- 云托管 Express 可暂时不用；以后做业务 API 再开

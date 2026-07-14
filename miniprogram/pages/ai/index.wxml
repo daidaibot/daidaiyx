@@ -1,27 +1,8 @@
-<view class="page">
-  <scroll-view class="list" scroll-y enhanced show-scrollbar="{{false}}" scroll-into-view="{{scrollInto}}">
-    <view
-      wx:for="{{messages}}"
-      wx:key="id"
-      id="m{{item.id}}"
-      class="bubble {{item.role}}"
-    >
-      <text selectable>{{item.content}}</text>
-    </view>
-  </scroll-view>
-
-  <view class="composer">
-    <input
-      class="input"
-      value="{{input}}"
-      placeholder="对呆呆 AI 说点什么…"
-      confirm-type="send"
-      bindinput="onInput"
-      bindconfirm="onSend"
-      disabled="{{loading}}"
-    />
-    <button class="send" size="mini" loading="{{loading}}" disabled="{{loading || !input}}" bindtap="onSend">
-      发送
-    </button>
-  </view>
+<view class="wrap">
+  <agent-ui
+    chatMode="{{chatMode}}"
+    showBotAvatar="{{showBotAvatar}}"
+    agentConfig="{{agentConfig}}"
+    modelConfig="{{modelConfig}}"
+  />
 </view>
