@@ -1,7 +1,7 @@
 {
   "name": "daidaiyx",
   "version": "1.0.0",
-  "description": "呆呆网络 · 接星小游戏（微信云托管 Express）",
+  "description": "呆呆网络 · 微信小程序云托管后端（AI + 接星游戏）",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

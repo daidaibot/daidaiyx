@@ -1,30 +1,41 @@
-# 呆呆网络 · daidaiyx
+# 呆呆网络 · 微信小程序 + 云托管 AI
 
-微信云托管可部署的 Express 服务，首页是「呆呆接星」小游戏。
+这是**微信小程序项目**，不是网页版 Dify。
 
-## 本地试玩
+## 目录
 
-```bash
-npm install
-npm start
+- `miniprogram/`：微信开发者工具打开这个目录
+- `server.js`：微信云托管 Express 后端（含 `/api/chat`）
+- `public/`：云托管上的接星小游戏网页
+
+## 上线 AI（小程序内）
+
+### 1. 云托管重新发布后端
+
+绑定仓库 `daidaibot/daidaiyx` 分支 `main`，端口 `80`，发布。
+
+在云托管 → 服务设置 → **环境变量** 增加（二选一）：
+
+- `DEEPSEEK_API_KEY=你的key`
+- 或 `OPENAI_API_KEY=你的key`
+
+可选：`AI_MODEL=deepseek-chat`
+
+**Key 不要写进代码、不要发聊天。**
+
+### 2. 微信开发者工具
+
+1. 导入项目，目录选：`miniprogram/`
+2. AppID 可先用测试号，有正式号再替换 `project.config.json`
+3. 打开 `miniprogram/app.js`，填：
+
+```js
+apiBase: 'https://你的云托管公网域名'
 ```
 
-浏览器打开：http://127.0.0.1:80  
-（Windows 若 80 端口权限不够，可设 `$env:PORT=3000; npm start`，再访问 http://127.0.0.1:3000）
+4. 详情 → 本地设置 → 勾选「不校验合法域名」（开发阶段）
+5. 正式版要把该域名加到小程序后台「request 合法域名」
 
-## 部署到微信云托管（上传代码包）
+### 3. 使用
 
-1. 打开服务 `daidaiyx` → **部署发布**
-2. **选择方式**选：**上传代码包**（不要绑 GitHub）
-3. 上传本目录打好的 `daidaiyx-deploy.zip`
-4. **端口填 `80`**
-5. 点发布，等运行中
-6. 用服务详情里的**公网域名**打开，即可玩到游戏
-
-打 zip（在项目根目录 PowerShell）：
-
-```powershell
-Compress-Archive -Path Dockerfile,package.json,server.js,public -DestinationPath daidaiyx-deploy.zip -Force
-```
-
-注意：zip **根目录**要直接是这些文件，不要多包一层文件夹。
+小程序首页 → **呆呆 AI** → 发送消息即可。

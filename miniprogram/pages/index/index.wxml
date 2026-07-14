@@ -1,0 +1,19 @@
+<view class="page">
+  <view class="hero">
+    <view class="brand">呆呆网络</view>
+    <view class="tagline">多功能 · 多项目 · 一个入口</view>
+  </view>
+
+  <view class="grid">
+    <view class="card ai" bindtap="goAi">
+      <view class="card-title">呆呆 AI</view>
+      <view class="card-desc">小程序里直接对话</view>
+    </view>
+    <view class="card game" bindtap="goGame">
+      <view class="card-title">接星小游戏</view>
+      <view class="card-desc">云托管网页版入口</view>
+    </view>
+  </view>
+
+  <view class="tip">后续购物、工具等业务也会挂在这里</view>
+</view>

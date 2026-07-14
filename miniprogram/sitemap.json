@@ -1,0 +1,9 @@
+{
+  "desc": "呆呆网络",
+  "rules": [
+    {
+      "action": "allow",
+      "page": "*"
+    }
+  ]
+}

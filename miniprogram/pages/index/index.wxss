@@ -1,0 +1,62 @@
+.page {
+  padding: 48rpx 36rpx 64rpx;
+  min-height: 100vh;
+  box-sizing: border-box;
+  background:
+    radial-gradient(900rpx 480rpx at 10% -10%, #1e4a6d 0%, transparent 55%),
+    linear-gradient(180deg, #0b1c2c, #071018);
+}
+
+.hero {
+  margin: 40rpx 0 56rpx;
+}
+
+.brand {
+  font-size: 56rpx;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  color: #f0c75e;
+}
+
+.tagline {
+  margin-top: 16rpx;
+  font-size: 26rpx;
+  color: #9bb3c7;
+  letter-spacing: 0.08em;
+}
+
+.grid {
+  display: flex;
+  flex-direction: column;
+  gap: 24rpx;
+}
+
+.card {
+  padding: 40rpx 36rpx;
+  border-radius: 24rpx;
+  border: 1rpx solid rgba(240, 199, 94, 0.28);
+  background: linear-gradient(145deg, rgba(26, 51, 72, 0.95), rgba(16, 32, 46, 0.95));
+}
+
+.card-title {
+  font-size: 36rpx;
+  font-weight: 700;
+  color: #eef5fb;
+}
+
+.card-desc {
+  margin-top: 12rpx;
+  font-size: 24rpx;
+  color: #9bb3c7;
+}
+
+.card.ai {
+  border-color: rgba(110, 198, 255, 0.4);
+}
+
+.tip {
+  margin-top: 48rpx;
+  text-align: center;
+  font-size: 22rpx;
+  color: #6f879b;
+}

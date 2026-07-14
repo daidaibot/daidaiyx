@@ -1,0 +1,21 @@
+.page {
+  padding: 80rpx 40rpx;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+.title {
+  font-size: 40rpx;
+  font-weight: 700;
+  color: #f0c75e;
+}
+.desc {
+  margin: 24rpx 0 48rpx;
+  color: #9bb3c7;
+  line-height: 1.6;
+  font-size: 26rpx;
+}
+.btn {
+  background: #f0c75e !important;
+  color: #1a1408 !important;
+  font-weight: 700;
+}

@@ -1,0 +1,16 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/ai/index",
+    "pages/game/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "呆呆网络",
+    "navigationBarBackgroundColor": "#0b1c2c",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#0b1c2c"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}
