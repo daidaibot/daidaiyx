@@ -5,10 +5,10 @@
 
   <view class="box {{ready ? 'in' : ''}}">
     <view class="brand">呆呆网络</view>
-    <view class="line">高级 AI 助理</view>
-    <view class="desc">界面来自开源 NextChat，一键进入对话。</view>
+    <view class="line">高级 · 简约</view>
+    <view class="desc">对话界面使用开源 chatgpt-web，部署后即可进入。</view>
     <view class="btn" bindtap="enterChat">进入呆呆 AI</view>
   </view>
 
-  <view class="foot">POWERED BY NEXTCHAT</view>
+  <view class="foot">CHATGPT-WEB</view>
 </view>

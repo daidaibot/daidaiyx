@@ -1,32 +1,40 @@
-﻿# 呆呆网络 = 小程序壳 + NextChat（高级现成 AI UI）
+﻿# 呆呆网络 · 高级简约 AI
 
-## 结构
+小程序只做品牌入口；对话 UI 用现成开源，不手写。
 
-- `miniprogram/` 微信小程序：主页 → web-view 打开 NextChat
-- `nextchat/` 开源 [NextChat](https://github.com/ChatGPTNextWeb/NextChat)（现成高级聊天界面，不手写）
+## 风格结论
 
-## 1. 先看效果（不用部署）
+| 方案 | 观感 | 是否推荐（高级简约） |
+|------|------|----------------------|
+| NextChat | 功能多、控件多 | 不太简约 |
+| **chatgpt-web** | 白底、少元素、接近 ChatGPT | **更贴高级简约** |
+| Chatbot UI | 英文站 ChatGPT 风 | 也简约 |
 
-浏览器打开官方演示：https://app.nextchat.club
+当前选定方向：**[Chanzhaoyu/chatgpt-web](https://github.com/Chanzhaoyu/chatgpt-web)**
 
-小程序里 `app.js` 已默认指向该演示地址，导入 `miniprogram/` 即可先进主页再点进入。
+预览图：`_candidates/chatgpt_web_preview/c1.png`、`c2.png`
 
-> 真机 web-view 需要把域名配进小程序「业务域名」；开发工具里若拦域名，可先点「浏览器」复制链接用手机浏览器看。
+## 目录
 
-## 2. 部署你自己的 NextChat（带你的 Key）
+- `miniprogram/` 主页 → 打开 AI 网页
+- `chatgpt-web/` 现成简约聊天（需自行部署后填地址）
 
-目录：`nextchat/`
+## 小程序
 
-1. 复制 `.env.example` → `.env`，填 `DEEPSEEK_API_KEY` 和 `CODE`
-2. 推到 GitHub 后用 Vercel 一键部署（官网 README 有 Deploy 按钮）
-3. 把得到的 `https://xxx.vercel.app` 填进 `miniprogram/app.js` 的 `aiUrl`
+导入 `miniprogram/`  
+`app.js` 里 `aiUrl`：部署好的 chatgpt-web 的 `https://域名`
 
-Vercel 环境变量至少：
-- `DEEPSEEK_API_KEY`
-- `CODE`（访问密码）
-- `HIDE_USER_API_KEY=1`
-- `DEFAULT_MODEL=deepseek-chat`
+## 部署 chatgpt-web（现成项目）
 
-## 3. 小程序
+见官方 README。常用 Docker：
 
-微信开发者工具导入：`miniprogram/`
+```bash
+docker run -d -p 3002:3002 \
+  -e OPENAI_API_KEY=你的Key \
+  -e OPENAI_API_BASE_URL=https://api.deepseek.com \
+  -e OPENAI_API_MODEL=deepseek-chat \
+  -e AUTH_SECRET_KEY=daidai \
+  chenzhaoyu94/chatgpt-web
+```
+
+拿到公网 HTTPS 后写进 `aiUrl`，并把域名配进小程序业务域名。

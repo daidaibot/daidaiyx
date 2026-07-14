@@ -1,4 +1,4 @@
-﻿node_modules/
+node_modules/
 *.zip
 .DS_Store
 npm-debug.log
@@ -6,4 +6,5 @@ _vendor_agent_ui/
 _candidates/
 chatgptmp_preview/
 nextchat/
+chatgpt-web/
 daidaiyx-deploy.zip
