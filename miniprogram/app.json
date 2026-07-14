@@ -1,22 +1,20 @@
 {
   "pages": [
+    "pages/index/index",
     "pages/ai/index"
   ],
   "window": {
-    "navigationBarTitleText": "呆呆网络 AI",
-    "navigationBarBackgroundColor": "#ffffff",
-    "navigationBarTextStyle": "black",
-    "backgroundColor": "#f5f5f5",
-    "backgroundTextStyle": "light",
-    "enablePullDownRefresh": true
+    "navigationStyle": "custom",
+    "navigationBarTitleText": "呆呆网络",
+    "navigationBarBackgroundColor": "#061018",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#061018",
+    "backgroundTextStyle": "light"
   },
   "style": "v2",
   "sitemapLocation": "sitemap.json",
   "lazyCodeLoading": "requiredComponents",
   "networkTimeout": {
-    "request": 300000,
-    "connectSocket": 60000,
-    "uploadFile": 60000,
-    "downloadFile": 60000
+    "request": 300000
   }
 }

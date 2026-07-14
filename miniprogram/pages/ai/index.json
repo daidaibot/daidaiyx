@@ -1,7 +1,4 @@
 {
-  "navigationBarTitleText": "呆呆网络 AI",
-  "usingComponents": {
-    "agent-ui": "/components/agent-ui/index"
-  },
-  "enablePullDownRefresh": true
+  "navigationStyle": "custom",
+  "usingComponents": {}
 }

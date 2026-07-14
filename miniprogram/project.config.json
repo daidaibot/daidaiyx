@@ -15,7 +15,7 @@
     "enhance": true
   },
   "compileType": "miniprogram",
-  "libVersion": "3.5.5",
+  "libVersion": "3.7.12",
   "appid": "touristappid",
   "projectname": "daidaiyx-ai",
   "condition": {}

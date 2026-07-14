@@ -1,27 +1,18 @@
 # 呆呆网络 · 微信小程序 AI
 
-用的是腾讯官方开源组件：
-[TencentCloudBase/cloudbase-agent-ui](https://github.com/TencentCloudBase/cloudbase-agent-ui)
+品牌主页 + 定制 AI 聊天（流式），不再使用官方通用 Agent UI 壳子。
 
-流式输出、Markdown、多会话、语音、上传 —— 微信小程序里更好看的 AI 方案。
+## 打开
 
-## 打开方式
+微信开发者工具导入：`miniprogram/`
 
-微信开发者工具 → 导入项目 → 目录选：
+## 配置
 
-`miniprogram/`
+1. 开通 **云开发**，把环境 ID 填进 `app.js`
+2. 云开发控制台配置 DeepSeek（或改 `globalData.aiProvider` / `aiModel`）
+3. 调试基础库 ≥ **3.7.1**
 
-## 必做配置（一次）
+## 页面
 
-1. 开发者工具顶部点 **云开发** → 开通环境，复制 **环境 ID**
-2. 打开 `miniprogram/app.js`，把 `YOUR_CLOUDBASE_ENV_ID` 换成真实环境 ID
-3. 打开 [云开发平台 AI](https://tcb.cloud.tencent.com/dev) → 接入大模型 → 填你的 **DeepSeek / 其他 Key**
-4. 编译预览，即可对话
-
-当前默认：`chatMode: model` + DeepSeek。  
-若要用云开发 Agent，把 `pages/ai/index.js` 里改成 `chatMode: 'bot'` 并填 `botId`。
-
-## 说明
-
-- AI 走 **微信云开发 AI**，不走原来的 Express 小游戏服务
-- 云托管 Express 可暂时不用；以后做业务 API 再开
+- `pages/index`：呆呆网络主页
+- `pages/ai`：定制聊天页（流式输出）

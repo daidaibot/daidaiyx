@@ -1,0 +1,125 @@
+.stage {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  box-sizing: border-box;
+  background:
+    radial-gradient(1200rpx 700rpx at 12% -8%, rgba(44, 108, 148, 0.55) 0%, transparent 55%),
+    radial-gradient(900rpx 620rpx at 100% 8%, rgba(176, 132, 48, 0.22) 0%, transparent 48%),
+    linear-gradient(165deg, #081722 0%, #040b12 52%, #07141f 100%);
+}
+
+.glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(40rpx);
+  pointer-events: none;
+}
+
+.glow-a {
+  width: 420rpx;
+  height: 420rpx;
+  left: -80rpx;
+  top: 220rpx;
+  background: rgba(64, 148, 190, 0.28);
+  animation: drift 9s ease-in-out infinite alternate;
+}
+
+.glow-b {
+  width: 360rpx;
+  height: 360rpx;
+  right: -60rpx;
+  bottom: 180rpx;
+  background: rgba(240, 199, 94, 0.16);
+  animation: drift 11s ease-in-out infinite alternate-reverse;
+}
+
+.grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.08;
+  background-image: radial-gradient(#fff 0.6rpx, transparent 0.6rpx);
+  background-size: 10rpx 10rpx;
+  pointer-events: none;
+}
+
+.compose {
+  position: relative;
+  z-index: 2;
+  padding: 120rpx 48rpx 0;
+  opacity: 0;
+  transform: translateY(36rpx);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+
+.compose.in {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.brand {
+  font-size: 72rpx;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  color: #f0c75e;
+  line-height: 1.15;
+  text-shadow: 0 10rpx 40rpx rgba(240, 199, 94, 0.25);
+}
+
+.headline {
+  margin-top: 48rpx;
+  max-width: 620rpx;
+  font-size: 44rpx;
+  font-weight: 600;
+  line-height: 1.45;
+  color: #f4f8fc;
+  letter-spacing: 0.02em;
+}
+
+.lead {
+  margin-top: 24rpx;
+  font-size: 28rpx;
+  line-height: 1.6;
+  color: rgba(201, 220, 235, 0.78);
+  letter-spacing: 0.04em;
+}
+
+.cta {
+  margin-top: 88rpx;
+  display: inline-flex;
+  align-items: center;
+  gap: 18rpx;
+  padding: 28rpx 44rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(120deg, #f0c75e, #d9a83a);
+  color: #1a1408;
+  font-size: 30rpx;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  box-shadow: 0 18rpx 50rpx rgba(240, 199, 94, 0.28);
+}
+
+.cta-hover {
+  opacity: 0.9;
+  transform: scale(0.98);
+}
+
+.arrow {
+  font-size: 34rpx;
+}
+
+.floor {
+  position: absolute;
+  left: 48rpx;
+  right: 48rpx;
+  bottom: calc(48rpx + env(safe-area-inset-bottom));
+  z-index: 2;
+  font-size: 20rpx;
+  letter-spacing: 0.35em;
+  color: rgba(155, 179, 199, 0.45);
+}
+
+@keyframes drift {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(24rpx, -18rpx, 0); }
+}

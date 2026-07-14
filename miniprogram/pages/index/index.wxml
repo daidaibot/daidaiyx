@@ -1,0 +1,20 @@
+<view class="stage">
+  <view class="glow glow-a"></view>
+  <view class="glow glow-b"></view>
+  <view class="grain"></view>
+
+  <view class="status-pad" style="height: {{statusBarHeight}}px;"></view>
+
+  <view class="compose {{ready ? 'in' : ''}}">
+    <view class="brand">呆呆网络</view>
+    <view class="headline">把复杂留给系统，把灵感留给你。</view>
+    <view class="lead">一个入口，接入你的私人 AI 助手。</view>
+
+    <view class="cta" bindtap="enterAi" hover-class="cta-hover">
+      <text>进入呆呆 AI</text>
+      <text class="arrow">→</text>
+    </view>
+  </view>
+
+  <view class="floor">DAIDAI NETWORK</view>
+</view>
