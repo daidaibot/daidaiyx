@@ -10,7 +10,7 @@
   <web-view wx:if="{{url}}" src="{{url}}"></web-view>
 
   <view wx:else class="empty">
-    <view class="tip">还未配置 NextChat 地址</view>
-    <view class="sub">请在 miniprogram/app.js 填写 globalData.aiUrl</view>
+    <view class="tip">链接加载中…</view>
+    <view class="sub">返回首页再进一次试试</view>
   </view>
 </view>

@@ -1,7 +1,11 @@
 node_modules/
+web-ui/node_modules/
+web-ui/dist/
 *.zip
 .DS_Store
 npm-debug.log
+.env
+web-ui/.env
 _vendor_agent_ui/
 _candidates/
 chatgptmp_preview/

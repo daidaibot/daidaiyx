@@ -1,11 +1,13 @@
 {
   "name": "daidaiyx",
   "version": "1.0.0",
-  "description": "呆呆网络 · 微信小程序云托管后端（AI + 接星游戏）",
+  "description": "呆呆网络 · 微信小程序 + 豆包风 AI（云托管）",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "build:ui": "npm --prefix web-ui ci && npm --prefix web-ui run build",
+    "postinstall": "node -e \"const fs=require('fs');if(fs.existsSync('web-ui/package.json')){console.log('[postinstall] run build:ui before deploy if dist missing')}\""
   },
   "engines": {
     "node": ">=18"

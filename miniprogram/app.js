@@ -1,8 +1,7 @@
 App({
   globalData: {
     brand: '呆呆网络',
-    // 部署 chatgpt-web（高级简约）后填你的 https 地址
-    // 预览风格见：_candidates/chatgpt_web_preview/c1.png
-    aiUrl: '',
+    // 已默认指向豆包风演示，导入小程序就能用；以后换成你自己的云托管地址即可
+    aiUrl: 'https://juzhiqiang.github.io/xiao-bao-bao',
   },
 });
