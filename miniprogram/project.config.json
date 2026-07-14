@@ -1,5 +1,6 @@
 {
   "description": "呆呆网络 AI 小程序",
+  "miniprogramRoot": "./",
   "packOptions": {
     "ignore": [],
     "include": []

@@ -64,6 +64,6 @@ Page({
   },
 
   goHome2() {
-    wx.redirectTo({ url: '/pages/home2/index' });
+    wx.redirectTo({ url: '/pages/p2-colorui/index' });
   },
 });

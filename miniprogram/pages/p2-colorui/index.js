@@ -8,7 +8,7 @@ Page({
     wx.navigateTo({ url: '/pages/chat/index' });
   },
   goHome4() {
-    wx.redirectTo({ url: '/pages/home4/index' });
+    wx.redirectTo({ url: '/pages/p4-aitools/index' });
   },
   goIndex() {
     wx.navigateBack({ fail: () => wx.reLaunch({ url: '/pages/index/index' }) });

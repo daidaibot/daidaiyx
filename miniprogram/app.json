@@ -1,8 +1,8 @@
 {
   "pages": [
     "pages/index/index",
-    "pages/home2/index",
-    "pages/home4/index",
+    "pages/p2-colorui/index",
+    "pages/p4-aitools/index",
     "pages/chat/index"
   ],
   "window": {
