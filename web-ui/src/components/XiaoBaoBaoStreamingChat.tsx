@@ -684,7 +684,7 @@ const XiaoBaoBaoStreamingChat = () => {
           
           <div className="flex items-center justify-center mt-3">
             <p className="text-xs text-slate-400 text-center">
-              {isStreaming ? '正在流式生成回复...' : 'DeepSeek GraphQL API · 支持 Markdown 格式 · 流式响应'}
+              {isStreaming ? '正在回复...' : '豆包风界面 · 支持 Markdown · 演示可直接聊'}
             </p>
           </div>
         </div>
