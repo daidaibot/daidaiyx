@@ -1,0 +1,16 @@
+{
+  "name": "daidaiyx",
+  "version": "1.0.0",
+  "description": "呆呆网络 · 接星小游戏（微信云托管 Express）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
