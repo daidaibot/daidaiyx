@@ -10,10 +10,13 @@ if (!rootElement) {
   throw new Error('Root element not found');
 }
 
+// Vite base，例如 GitHub Pages 的 /daidaiyx/
+const basename = (import.meta.env.BASE_URL || '/').replace(/\/$/, '') || undefined;
+
 createRoot(rootElement).render(
   <StrictMode>
     <ErrorBoundary>
-      <BrowserRouter>
+      <BrowserRouter basename={basename}>
         <App />
       </BrowserRouter>
     </ErrorBoundary>

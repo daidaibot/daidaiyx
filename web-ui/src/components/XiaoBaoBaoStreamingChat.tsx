@@ -68,17 +68,19 @@ const XiaoBaoBaoStreamingChat = () => {
     setConnectionStatus('connecting');
     try {
       const isSupported = await StreamingChatHandler.checkStreamingSupport();
-      setConnectionStatus(isSupported ? 'connected' : 'error');
-      if (!isSupported) {
-        setError('AI 服务暂未就绪：请在云托管配置 DEEPSEEK_API_KEY 后重试');
-      } else {
+      if (isSupported || appConfig.demoMode) {
+        setConnectionStatus('connected');
         const availableModels = await streamingHandler.getModels();
         setModels(availableModels);
-        setError(null);
+        setError(appConfig.demoMode ? '当前为演示模式，可先体验界面' : null);
+      } else {
+        // 无后端也不报错阻断：演示回复兜底
+        setConnectionStatus('connected');
+        setError('未连接模型服务，先用演示回复体验界面');
       }
     } catch (error) {
-      setConnectionStatus('error');
-      setError('无法连接到呆呆 AI 服务');
+      setConnectionStatus('connected');
+      setError('演示模式：界面可正常使用');
       console.error('Connection check failed:', error);
     }
   };
@@ -435,6 +437,7 @@ const XiaoBaoBaoStreamingChat = () => {
   };
 
   const getConnectionStatusText = () => {
+    if (appConfig.demoMode) return '演示模式 · 呆呆 AI';
     switch (connectionStatus) {
       case 'connected':
         return '呆呆 AI 已就绪';

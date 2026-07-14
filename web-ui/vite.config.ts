@@ -1,12 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// https://vitejs.dev/config/
-export default defineConfig(({ command, mode }) => {
-  // 简化base路径逻辑
-  const base = mode === 'production' && process.env.GITHUB_PAGES === 'true' 
-    ? '/' 
-    : '/';
+export default defineConfig(({ mode }) => {
+  const base =
+    process.env.GITHUB_PAGES === 'true' ? '/daidaiyx/' : '/';
 
   return {
     plugins: [react()],

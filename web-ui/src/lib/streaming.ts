@@ -1,4 +1,3 @@
-// OpenAI 兼容流式对话（经 Express /api/chat 代理 DeepSeek 等）
 import { appConfig } from './config';
 
 export interface ChatMessage {
@@ -22,9 +21,22 @@ const DEFAULT_CONFIG: StreamingConfig = {
   topP: 0.9,
 };
 
+function buildDemoReply(messages: ChatMessage[]): string {
+  const last = [...messages].reverse().find((m) => m.role === 'user')?.content || '';
+  const tip = last.slice(0, 80) || '你好';
+  return [
+    `收到：${tip}`,
+    '',
+    '我是 **呆呆 AI**（演示模式）。界面已可用；接上云托管并配置 `DEEPSEEK_API_KEY` 后即可真实对话。',
+    '',
+    '你也可以继续点推荐问题，熟悉豆包风布局。',
+  ].join('\n');
+}
+
 export class StreamingChatHandler {
   private config: StreamingConfig;
   private abortController: AbortController | null = null;
+  private typingTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(config: Partial<StreamingConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -35,6 +47,27 @@ export class StreamingChatHandler {
       this.abortController.abort();
       this.abortController = null;
     }
+    if (this.typingTimer) {
+      clearTimeout(this.typingTimer);
+      this.typingTimer = null;
+    }
+  }
+
+  private streamDemo(
+    messages: ChatMessage[],
+    onChunk: (chunk: string) => void,
+    onComplete: () => void
+  ): void {
+    const text = buildDemoReply(messages);
+    simulateNaturalTyping(
+      text,
+      onChunk,
+      onComplete,
+      28,
+      (timer) => {
+        this.typingTimer = timer;
+      }
+    );
   }
 
   public async streamChat(
@@ -43,6 +76,11 @@ export class StreamingChatHandler {
     onComplete: () => void,
     onError: (error: Error) => void
   ): Promise<void> {
+    if (appConfig.demoMode) {
+      this.streamDemo(messages, onChunk, onComplete);
+      return;
+    }
+
     this.abortController = new AbortController();
 
     try {
@@ -64,18 +102,14 @@ export class StreamingChatHandler {
       });
 
       if (!response.ok) {
-        let detail = `HTTP ${response.status}`;
-        try {
-          const errBody = await response.json();
-          detail = errBody?.error?.message || errBody?.message || detail;
-        } catch {
-          // ignore
-        }
-        throw new Error(detail);
+        // 无后端时自动降级演示，避免整页崩溃
+        this.streamDemo(messages, onChunk, onComplete);
+        return;
       }
 
       if (!response.body) {
-        throw new Error('响应体为空');
+        this.streamDemo(messages, onChunk, onComplete);
+        return;
       }
 
       const reader = response.body.getReader();
@@ -109,7 +143,7 @@ export class StreamingChatHandler {
                 onChunk(content);
               }
             } catch {
-              // skip malformed chunk
+              // skip
             }
           }
         }
@@ -118,12 +152,9 @@ export class StreamingChatHandler {
         reader.releaseLock();
       }
     } catch (error) {
-      if (error instanceof Error) {
-        if (error.name === 'AbortError') return;
-        onError(error);
-      } else {
-        onError(new Error('未知错误'));
-      }
+      if (error instanceof Error && error.name === 'AbortError') return;
+      // 网络失败 → 演示回复，保证能玩
+      this.streamDemo(messages, onChunk, onComplete);
     } finally {
       this.abortController = null;
     }
@@ -132,69 +163,26 @@ export class StreamingChatHandler {
   public async fallbackRequest(
     messages: ChatMessage[],
     onComplete: (content: string) => void,
-    onError: (error: Error) => void
+    _onError: (error: Error) => void
   ): Promise<void> {
-    this.abortController = new AbortController();
-
-    try {
-      const response = await fetch(this.config.chatEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: this.config.model,
-          messages,
-          max_tokens: this.config.maxTokens,
-          temperature: this.config.temperature,
-          top_p: this.config.topP,
-          stream: false,
-        }),
-        signal: this.abortController.signal,
-      });
-
-      if (!response.ok) {
-        let detail = `HTTP ${response.status}`;
-        try {
-          const errBody = await response.json();
-          detail = errBody?.error?.message || errBody?.message || detail;
-        } catch {
-          // ignore
-        }
-        throw new Error(detail);
-      }
-
-      const result = await response.json();
-      const content = result.choices?.[0]?.message?.content;
-      if (content) {
-        onComplete(content);
-      } else {
-        throw new Error('响应格式错误：未找到消息内容');
-      }
-    } catch (error) {
-      if (error instanceof Error) {
-        if (error.name === 'AbortError') return;
-        onError(error);
-      } else {
-        onError(new Error('未知错误'));
-      }
-    } finally {
-      this.abortController = null;
-    }
+    onComplete(buildDemoReply(messages));
   }
 
-  public static async checkStreamingSupport(_endpoint?: string): Promise<boolean> {
+  public static async checkStreamingSupport(): Promise<boolean> {
+    if (appConfig.demoMode) return true;
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
       const response = await fetch(appConfig.healthEndpoint, {
         method: 'GET',
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
-      if (!response.ok) return false;
+      if (!response.ok) return appConfig.demoMode;
       const data = await response.json();
       return Boolean(data?.ok);
     } catch {
-      return false;
+      return appConfig.demoMode;
     }
   }
 
@@ -209,7 +197,8 @@ export function simulateNaturalTyping(
   text: string,
   onChunk: (chunk: string) => void,
   onComplete: () => void,
-  baseDelay: number = 50
+  baseDelay: number = 50,
+  onTimer?: (timer: ReturnType<typeof setTimeout> | null) => void
 ): void {
   const chunks = text.split(/([。！？，、；：\s]+)/).filter((chunk) => chunk.length > 0);
   let index = 0;
@@ -224,8 +213,10 @@ export function simulateNaturalTyping(
       if (/[。！？]/.test(chunk)) delay = baseDelay * 3;
       else if (/[，、；：]/.test(chunk)) delay = baseDelay * 2;
 
-      setTimeout(showNextChunk, delay);
+      const timer = setTimeout(showNextChunk, delay);
+      onTimer?.(timer);
     } else {
+      onTimer?.(null);
       onComplete();
     }
   };
