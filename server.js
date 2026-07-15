@@ -18,12 +18,12 @@ const CHAT_BASE_URL = (
 const DEFAULT_MODEL =
   process.env.DAIDAI_AI_MODEL || process.env.CHAT_MODEL || "deepseek-chat";
 
-/** 生图上游（内部）；对外一律称「呆呆 Image」；默认直连官方 OpenAI（配合代理池） */
+/** 生图上游（内部）；对外一律称「呆呆 Image」；默认走国外 VPS 中转 */
 const IMAGE_BASE_URL = (
   process.env.DAIDAI_IMAGE_BASE_URL ||
   process.env.OPENAI_IMAGE_BASE_URL ||
   process.env.OPENAI_API_BASE ||
-  "https://api.openai.com"
+  "http://154.12.94.236"
 ).replace(/\/$/, "");
 const IMAGE_MODEL =
   process.env.DAIDAI_IMAGE_MODEL || process.env.IMAGE_MODEL || "gpt-image-2";
@@ -591,10 +591,11 @@ app.post("/api/admin/probe", adminAuth, async (req, res) => {
           model: IMAGE_MODEL,
         });
       }
-      // 用 /v1/models 真连上游（不扣生图费），验证密钥+代理+网络
+      // 用 /v1/models 真连上游（不扣生图费）；VPS 中转会直连，不再套 Webshare
       const upstream = await outboundFetch(`${IMAGE_BASE_URL}/v1/models`, {
         method: "GET",
         headers: { Authorization: `Bearer ${imageKey}` },
+        signal: AbortSignal.timeout(25000),
       });
       const raw = await upstream.text();
       let data = null;
