@@ -11,6 +11,7 @@ COPY server.js ./
 COPY lib ./lib
 COPY admin ./admin
 COPY site ./site
+COPY config ./config
 RUN mkdir -p /app/data
 VOLUME ["/app/data"]
 
