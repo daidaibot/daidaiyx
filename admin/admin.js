@@ -25,14 +25,26 @@ async function api(path, options = {}) {
     options.headers || {}
   );
   if (token()) headers.Authorization = `Bearer ${token()}`;
-  const res = await fetch(path, Object.assign({}, options, { headers }));
+  let res;
+  try {
+    res = await fetch(path, Object.assign({}, options, { headers }));
+  } catch (e) {
+    throw new Error("网络不通，请检查服务是否在线");
+  }
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) {
     setToken("");
     showLogin();
-    throw new Error(data.error?.message || "未登录");
+    throw new Error(data.error?.message || "未登录或已过期，请重新登录");
   }
-  if (!res.ok) throw new Error(data.error?.message || data.error || "请求失败");
+  if (!res.ok) {
+    const msg =
+      (data.error && data.error.message) ||
+      (typeof data.error === "string" ? data.error : "") ||
+      data.message ||
+      "";
+    throw new Error(msg || `探测接口异常（${res.status}）`);
+  }
   return data;
 }
 
@@ -317,7 +329,23 @@ async function runProbe(kind) {
       method: "POST",
       body: JSON.stringify({ kind }),
     });
-    el.textContent = JSON.stringify(data, null, 2);
+    if (data.ok) {
+      el.textContent = [
+        "通过",
+        data.preview ? `说明：${data.preview}` : "",
+        data.ms != null ? `耗时：${data.ms}ms` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    } else {
+      el.textContent = [
+        "未通过",
+        data.error || data.preview || "",
+        data.ms != null ? `耗时：${data.ms}ms` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }
   } catch (e) {
     el.textContent = e.message || "探测失败";
   }
