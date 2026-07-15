@@ -109,7 +109,7 @@ function systemPrompt(skill, mask) {
 function friendlyError(msg) {
   const s = String(msg || '');
   if (
-    /api.?key|OPENAI|DeepSeek|deepseek|gpt-?image|openai|dall-?e|unauthorized|401|403|503|未配置/i.test(
+    /api.?key|OPENAI|DeepSeek|deepseek|gpt-?image|openai|dall-?e|unauthorized|401|403|503|未配置|未就绪/i.test(
       s
     )
   ) {
@@ -118,7 +118,7 @@ function friendlyError(msg) {
   if (/timeout|超时|fail|network|ERR_/i.test(s)) {
     return '网络不太稳定，请稍后再试';
   }
-  if (!s) return '呆呆 AI 处理失败，请稍后再试';
+  if (!s) return '';
   // 去掉可能泄露的英文厂商词
   return s
     .replace(/DeepSeek|OpenAI|GPT[\s-]?Image|gpt-image-\d+|DALL·E|Claude/gi, '呆呆 AI')
@@ -1008,9 +1008,16 @@ Page({
             image: data.image,
           });
         } else {
+          const rawMsg =
+            (data.error && data.error.message) ||
+            (typeof data.error === 'string' ? data.error : '') ||
+            data.message ||
+            '';
           this.updateMessage(aiId, {
             loading: false,
-            content: friendlyError(data.error?.message),
+            content:
+              friendlyError(rawMsg) ||
+              `生图失败（${res.statusCode || '?'}），请到管理后台看错误日志`,
             image: '',
           });
         }
@@ -1019,7 +1026,9 @@ Page({
       fail: (err) => {
         this.updateMessage(aiId, {
           loading: false,
-          content: friendlyError(err.errMsg),
+          content:
+            friendlyError(err && err.errMsg) ||
+            '无法连接服务，请检查域名与 apiBase',
         });
         this.setData({ busy: false });
       },
@@ -1095,9 +1104,16 @@ Page({
             image: data.image,
           });
         } else {
+          const rawMsg =
+            (data.error && data.error.message) ||
+            (typeof data.error === 'string' ? data.error : '') ||
+            data.message ||
+            '';
           this.updateMessage(aiId, {
             loading: false,
-            content: friendlyError(data.error?.message),
+            content:
+              friendlyError(rawMsg) ||
+              `改图失败（${res.statusCode || '?'}），请到管理后台看错误日志`,
             image: '',
           });
         }
@@ -1106,7 +1122,9 @@ Page({
       fail: (err) => {
         this.updateMessage(aiId, {
           loading: false,
-          content: friendlyError(err.errMsg),
+          content:
+            friendlyError(err && err.errMsg) ||
+            '无法连接服务，请检查域名与 apiBase',
         });
         this.setData({ busy: false });
       },
