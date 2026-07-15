@@ -4,7 +4,7 @@ const express = require("express");
 const ops = require("./lib/ops");
 const imageOut = require("./lib/imageOut");
 const imageJobs = require("./lib/imageJobs");
-const { outboundFetch, hasOutboundProxy, maskProxy, reloadProxies, proxyCount } = require("./lib/outbound");
+const { outboundFetch, hasOutboundProxy, maskProxy, reloadProxies, proxyCount, seedProxiesToDataDir } = require("./lib/outbound");
 
 const app = express();
 const PORT = Number(process.env.PORT) || 80;
@@ -396,6 +396,13 @@ app.get("/api/admin/proxies", adminAuth, (_req, res) => {
     } else if (fs.existsSync(builtin)) {
       text = fs.readFileSync(builtin, "utf8");
       source = "config/proxies.builtin.txt（部署内置）";
+    } else {
+      try {
+        text = String(require("./lib/proxiesBuiltin") || "");
+        if (text.trim()) source = "lib/proxiesBuiltin.js（嵌入）";
+      } catch {
+        /* ignore */
+      }
     }
   } catch (e) {
     console.error("read proxies failed:", e.message);
@@ -1437,8 +1444,11 @@ app.get("*", (req, res, next) => {
 });
 
 app.listen(PORT, "0.0.0.0", () => {
+  const seeded = seedProxiesToDataDir();
   console.log(
-    `呆呆网络 listening on ${PORT}, chatConfigured=${Boolean(ops.getChatKey())}, imageBase=${IMAGE_BASE_URL}, outboundProxy=${hasOutboundProxy() ? maskProxy() : "off"}, sharp=${imageOut.hasSharp()}, site=/, admin=/admin/`
+    `呆呆网络 listening on ${PORT}, chatConfigured=${Boolean(ops.getChatKey())}, imageBase=${IMAGE_BASE_URL}, outboundProxy=${
+      hasOutboundProxy() ? maskProxy() : "off"
+    }, proxyNodes=${seeded || proxyCount()}, sharp=${imageOut.hasSharp()}, site=/, admin=/admin/`
   );
   imageOut.cleanupOldImages();
   setInterval(() => imageOut.cleanupOldImages(), 6 * 3600 * 1000).unref?.();
