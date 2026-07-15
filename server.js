@@ -102,8 +102,8 @@ function maintenancePageHtml(message) {
     .replace(/>/g, "&gt;");
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>维护中 · 呆呆网络</title>
 <style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:PingFang SC,Microsoft YaHei,sans-serif;background:linear-gradient(180deg,#fff,#eef8f1);color:#1e3a2a;text-align:center;padding:24px}
-.card{max-width:420px}.brand{color:#40916c;font-weight:700;letter-spacing:.12em;margin-bottom:12px}.msg{font-size:18px;line-height:1.6;margin:16px 0}.sub{color:#6b7a90;font-size:13px}</style></head>
-<body><div class="card"><div class="brand">呆呆网络</div><h1>维护中</h1><p class="msg">${msg}</p><p class="sub">管理后台不受影响 · /admin/</p></div></body></html>`;
+.card{max-width:420px}.brand{color:#40916c;font-weight:700;letter-spacing:.12em;margin-bottom:12px}.msg{font-size:18px;line-height:1.6;margin:16px 0}</style></head>
+<body><div class="card"><div class="brand">呆呆网络</div><h1>维护中</h1><p class="msg">${msg}</p></div></body></html>`;
 }
 
 /** 维护模式：拦住网站页面（后台除外） */

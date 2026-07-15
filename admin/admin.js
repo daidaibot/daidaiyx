@@ -140,8 +140,8 @@ async function loadOverview() {
 
   const ann = data.settings?.announce || "";
   document.getElementById("announceNote").innerHTML = ann
-    ? `<p><b>当前公告：</b>${esc(ann)}</p>`
-    : `<p>对外产品名：<b>呆呆 AI</b>。小程序记录在用户本地；本后台看服务端状态与调用。</p>`;
+    ? `<p>${esc(ann)}</p>`
+    : "";
 
   const rows = [
     ["呆呆 AI（对话）", data.chatConfigured, data.secrets?.chatFromAdmin ? "后台已配置密钥" : "待后台或环境变量配置"],
@@ -251,11 +251,11 @@ async function loadSecretsForm() {
   document.getElementById("secChat").value = "";
   document.getElementById("secImage").value = "";
   document.getElementById("secChatHint").textContent = sec.chatConfigured
-    ? `已配置 · ${sec.chatMasked}${sec.chatFromAdmin ? " · 来源：后台" : " · 来源：环境变量"}`
-    : "未配置呆呆 AI 密钥";
+    ? sec.chatMasked
+    : "未配置";
   document.getElementById("secImageHint").textContent = sec.imageConfigured
-    ? `已配置 · ${sec.imageMasked}${sec.imageFromAdmin ? " · 来源：后台" : " · 来源：环境变量"}`
-    : "未配置呆呆 Image 密钥";
+    ? sec.imageMasked
+    : "未配置";
   document.getElementById("secretsTip").textContent = "";
 }
 
@@ -276,7 +276,7 @@ async function saveSettings() {
         notes: document.getElementById("setNotes").value,
       }),
     });
-    tip.textContent = "已保存。请把小程序 app.js 的 apiBase 设为同一域名。";
+    tip.textContent = "已保存";
     await loadOverview();
   } catch (e) {
     tip.textContent = e.message || "保存失败";
