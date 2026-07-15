@@ -24,18 +24,12 @@ app.use(express.json({ limit: "20mb" }));
 
 const WECHAT_APPID = process.env.WECHAT_APPID || process.env.WX_APPID || "";
 const WECHAT_SECRET = process.env.WECHAT_SECRET || process.env.WX_SECRET || "";
-/** 网页微信跳转授权（公众号网页授权，不走扫码） */
-const WECHAT_OPEN_APPID =
-  process.env.WECHAT_OPEN_APPID || process.env.WECHAT_WEB_APPID || "";
-const WECHAT_OPEN_SECRET =
-  process.env.WECHAT_OPEN_SECRET || process.env.WECHAT_WEB_SECRET || "";
-const WECHAT_OAUTH_REDIRECT = (
-  process.env.WECHAT_OAUTH_REDIRECT || ""
-).replace(/\/$/, "");
 const ALLOW_DEV_LOGIN = process.env.ALLOW_DEV_LOGIN === "1";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
+/** 网页端仅本人使用：可用独立密码，默认与后台密码相同 */
+const WEB_PASSWORD =
+  process.env.WEB_PASSWORD || process.env.ADMIN_PASSWORD || "";
 const ADMIN_TOKENS = new Set();
-const OAUTH_STATES = new Map();
 
 const stats = {
   chat: 0,
@@ -44,37 +38,6 @@ const stats = {
   login: 0,
   startedAt: Date.now(),
 };
-
-function pruneOauthStates() {
-  const now = Date.now();
-  for (const [k, v] of OAUTH_STATES) {
-    if (!v || v.expiresAt < now) OAUTH_STATES.delete(k);
-  }
-}
-
-function publicBase(req) {
-  if (WECHAT_OAUTH_REDIRECT) {
-    try {
-      const u = new URL(WECHAT_OAUTH_REDIRECT);
-      return `${u.protocol}//${u.host}`;
-    } catch {
-      /* fall through */
-    }
-  }
-  const proto = String(req.headers["x-forwarded-proto"] || req.protocol || "https")
-    .split(",")[0]
-    .trim();
-  const host = String(req.headers["x-forwarded-host"] || req.headers.host || "")
-    .split(",")[0]
-    .trim();
-  return host ? `${proto}://${host}` : "";
-}
-
-function safeReturnPath(raw) {
-  const s = String(raw || "/chat.html").trim() || "/chat.html";
-  if (!s.startsWith("/") || s.startsWith("//")) return "/chat.html";
-  return s.slice(0, 200);
-}
 
 function issueAdminToken() {
   const token = `adm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
@@ -127,7 +90,7 @@ app.get("/api/admin/overview", adminAuth, (_req, res) => {
     chatConfigured: Boolean(API_KEY),
     imageConfigured: Boolean(IMAGE_API_KEY),
     wechatLoginConfigured: Boolean(WECHAT_APPID && WECHAT_SECRET),
-    webWechatLoginConfigured: Boolean(WECHAT_OPEN_APPID && WECHAT_OPEN_SECRET),
+    webPasswordConfigured: Boolean(WEB_PASSWORD),
     adminConfigured: Boolean(ADMIN_PASSWORD),
   });
 });
@@ -210,118 +173,36 @@ app.post("/api/auth/login", async (req, res) => {
 });
 
 /**
- * 网页微信登录：直接跳转微信授权页（不走扫码）
- * 需在微信内打开；环境变量 WECHAT_OPEN_APPID + WECHAT_OPEN_SECRET
- * （公众号/开放平台网页授权应用）
- * 可选：WECHAT_OAUTH_REDIRECT=https://域名/api/auth/wechat/callback
+ * 网页端仅本人使用：密码通行（默认与 ADMIN_PASSWORD 相同）
+ * 普通用户请走小程序微信登录
  */
-app.get("/api/auth/wechat/start", (req, res) => {
-  if (!WECHAT_OPEN_APPID || !WECHAT_OPEN_SECRET) {
-    return res
-      .status(503)
-      .type("html")
-      .send(
-        "<!doctype html><meta charset=utf-8><title>未配置</title>" +
-          "<p style='font-family:sans-serif;padding:40px'>未配置网页微信登录。<br/>请在云托管设置 <code>WECHAT_OPEN_APPID</code> 与 <code>WECHAT_OPEN_SECRET</code>。</p>"
-      );
-  }
-
-  pruneOauthStates();
-  const returnPath = safeReturnPath(req.query.return);
-  const state = `st_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-  OAUTH_STATES.set(state, {
-    returnPath,
-    expiresAt: Date.now() + 10 * 60 * 1000,
-  });
-
-  const base = publicBase(req);
-  const redirectUri = encodeURIComponent(
-    WECHAT_OAUTH_REDIRECT || `${base}/api/auth/wechat/callback`
-  );
-
-  const url =
-    `https://open.weixin.qq.com/connect/oauth2/authorize?appid=${encodeURIComponent(
-      WECHAT_OPEN_APPID
-    )}&redirect_uri=${redirectUri}&response_type=code&scope=snsapi_userinfo&state=${encodeURIComponent(
-      state
-    )}#wechat_redirect`;
-
-  res.redirect(302, url);
-});
-
-app.get("/api/auth/wechat/callback", async (req, res) => {
-  const code = String(req.query.code || "").trim();
-  const state = String(req.query.state || "").trim();
-  pruneOauthStates();
-  const st = OAUTH_STATES.get(state);
-  OAUTH_STATES.delete(state);
-
-  const fail = (msg) => {
-    const back = (st && st.returnPath) || "/chat.html";
-    res.redirect(
-      302,
-      `${back}${back.includes("?") ? "&" : "?"}wx_error=${encodeURIComponent(msg)}`
-    );
-  };
-
-  if (!code) return fail("用户取消了微信授权");
-  if (!st) return fail("登录已过期，请重试");
-  if (!WECHAT_OPEN_APPID || !WECHAT_OPEN_SECRET) return fail("未配置网站微信登录");
-
-  try {
-    const tokenUrl =
-      "https://api.weixin.qq.com/sns/oauth2/access_token" +
-      `?appid=${encodeURIComponent(WECHAT_OPEN_APPID)}` +
-      `&secret=${encodeURIComponent(WECHAT_OPEN_SECRET)}` +
-      `&code=${encodeURIComponent(code)}` +
-      "&grant_type=authorization_code";
-    const tokenRes = await fetch(tokenUrl);
-    const tokenData = await tokenRes.json();
-    if (!tokenData.access_token || !tokenData.openid) {
-      console.error("oauth access_token failed:", tokenData);
-      return fail("微信授权失败，请重试");
-    }
-
-    let nickName = "微信用户";
-    let avatarUrl = "";
-    try {
-      const infoUrl =
-        "https://api.weixin.qq.com/sns/userinfo" +
-        `?access_token=${encodeURIComponent(tokenData.access_token)}` +
-        `&openid=${encodeURIComponent(tokenData.openid)}` +
-        "&lang=zh_CN";
-      const infoRes = await fetch(infoUrl);
-      const info = await infoRes.json();
-      if (info && info.nickname) nickName = String(info.nickname);
-      if (info && info.headimgurl) avatarUrl = String(info.headimgurl);
-    } catch (e) {
-      console.error("oauth userinfo error:", e);
-    }
-
-    stats.login += 1;
-    const sessionToken = `web_${tokenData.openid}_${hashCode(
-      tokenData.access_token || code
-    )}`;
-    const q = new URLSearchParams({
-      wx_ok: "1",
-      openid: tokenData.openid,
-      token: sessionToken,
-      nickName,
-      avatarUrl,
+app.post("/api/auth/web-login", (req, res) => {
+  if (!WEB_PASSWORD) {
+    return res.status(503).json({
+      ok: false,
+      error: { message: "未配置网页通行密码（WEB_PASSWORD 或 ADMIN_PASSWORD）" },
     });
-    const back = st.returnPath || "/chat.html";
-    res.redirect(302, `${back}${back.includes("?") ? "&" : "?"}${q.toString()}`);
-  } catch (err) {
-    console.error("oauth callback error:", err);
-    return fail("登录服务繁忙");
   }
+  const password = String((req.body && req.body.password) || "");
+  if (!password || password !== WEB_PASSWORD) {
+    return res.status(401).json({ ok: false, error: { message: "密码错误" } });
+  }
+  const openid = "web_owner";
+  stats.login += 1;
+  return res.json({
+    ok: true,
+    openid,
+    token: `web_${openid}_${hashCode(password + Date.now())}`,
+    nickName: "站长",
+    avatarUrl: "",
+  });
 });
 
-app.get("/api/auth/wechat/status", (_req, res) => {
+app.get("/api/auth/status", (_req, res) => {
   res.json({
     ok: true,
-    miniProgramLogin: Boolean(WECHAT_APPID && WECHAT_SECRET),
-    webWechatLogin: Boolean(WECHAT_OPEN_APPID && WECHAT_OPEN_SECRET),
+    miniProgramWechatLogin: Boolean(WECHAT_APPID && WECHAT_SECRET),
+    webPasswordLogin: Boolean(WEB_PASSWORD),
     allowDevLogin: ALLOW_DEV_LOGIN,
   });
 });

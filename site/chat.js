@@ -52,27 +52,6 @@
     else localStorage.removeItem(USER_KEY);
   }
 
-  function consumeWechatCallback() {
-    const params = new URLSearchParams(location.search);
-    if (params.get("wx_error")) {
-      alert(params.get("wx_error"));
-      history.replaceState({}, "", location.pathname);
-      return;
-    }
-    if (params.get("wx_ok") !== "1") return;
-    const openid = params.get("openid") || "";
-    const token = params.get("token") || "";
-    const nickName = params.get("nickName") || "微信用户";
-    const avatarUrl = params.get("avatarUrl") || "";
-    if (!openid || !token) {
-      alert("微信登录失败，请重试");
-      history.replaceState({}, "", location.pathname);
-      return;
-    }
-    setUser({ openid, token, nickName, avatarUrl });
-    history.replaceState({}, "", location.pathname);
-  }
-
   function loggedIn() {
     const u = getUser();
     return Boolean(u && u.openid && (u.token || u.openid));
@@ -190,12 +169,12 @@
     if (user) {
       du.innerHTML = `<div class="drawer-avatar">${(user.nickName || "呆")[0]}</div><div><div class="drawer-name">${escapeHtml(
         user.nickName || "用户"
-      )}</div><div class="drawer-desc">微信已登录</div></div>`;
+      )}</div><div class="drawer-desc">站长已登录</div></div>`;
       $("drawerAuth").textContent = "退出登录";
     } else {
       du.innerHTML =
-        '<div class="drawer-avatar">游</div><div><div class="drawer-name">游客</div><div class="drawer-desc">需微信授权后使用</div></div>';
-      $("drawerAuth").textContent = "微信登录";
+        '<div class="drawer-avatar">游</div><div><div class="drawer-name">游客</div><div class="drawer-desc">网页仅本人 · 用户请用小程序</div></div>';
+      $("drawerAuth").textContent = "站长登录";
     }
     renderHistory();
   }
@@ -603,9 +582,37 @@
 
   $("guestTip").onclick = openLogin;
   $("loginCancel").onclick = closeLogin;
-  $("loginBtn").onclick = () => {
-    const ret = encodeURIComponent("/chat.html");
-    location.href = `/api/auth/wechat/start?return=${ret}`;
+  $("loginBtn").onclick = async () => {
+    const err = $("loginErr");
+    err.textContent = "";
+    const password = ($("pwdInput").value || "").trim();
+    if (!password) {
+      err.textContent = "请输入密码";
+      return;
+    }
+    try {
+      const res = await fetch("/api/auth/web-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        err.textContent = data.error?.message || "登录失败";
+        return;
+      }
+      setUser({
+        openid: data.openid,
+        token: data.token,
+        nickName: data.nickName || "站长",
+        avatarUrl: data.avatarUrl || "",
+      });
+      $("pwdInput").value = "";
+      closeLogin();
+      updateChrome();
+    } catch {
+      err.textContent = "网络错误，请稍后再试";
+    }
   };
 
   $("plusBtn").onclick = () => {
@@ -741,7 +748,6 @@
     setMask(id);
   };
 
-  consumeWechatCallback();
   renderSkills();
   renderMaskRow();
   renderSheet();

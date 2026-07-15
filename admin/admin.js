@@ -62,7 +62,7 @@ async function loadOverview() {
     ['对话（文字 / 写作 / 编程）', data.chatConfigured, '需 DEEPSEEK_API_KEY'],
     ['生图 / 改图', data.imageConfigured, '需 OPENAI_API_KEY'],
     ['小程序微信登录', data.wechatLoginConfigured, '需 WECHAT_APPID + WECHAT_SECRET'],
-    ['网页微信登录', data.webWechatLoginConfigured, '需 WECHAT_OPEN_APPID + WECHAT_OPEN_SECRET（跳转授权，非扫码）'],
+    ['网页站长通行', data.webPasswordConfigured, 'WEB_PASSWORD 或 ADMIN_PASSWORD'],
     ['后台密码', data.adminConfigured, '需 ADMIN_PASSWORD'],
   ];
   document.getElementById('svcBody').innerHTML = rows
