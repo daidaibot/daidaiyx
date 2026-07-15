@@ -5,18 +5,24 @@ const ops = require("./lib/ops");
 const app = express();
 const PORT = Number(process.env.PORT) || 80;
 
-const OPENAI_BASE_URL = (
-  process.env.OPENAI_BASE_URL || "https://api.deepseek.com"
+/** 对话上游（内部）；对外一律称「呆呆 AI」。优先读 DAIDAI_*，旧变量名仍兼容 */
+const CHAT_BASE_URL = (
+  process.env.DAIDAI_AI_BASE_URL ||
+  process.env.OPENAI_BASE_URL ||
+  "https://api.deepseek.com"
 ).replace(/\/$/, "");
-const DEFAULT_MODEL = process.env.CHAT_MODEL || "deepseek-chat";
+const DEFAULT_MODEL =
+  process.env.DAIDAI_AI_MODEL || process.env.CHAT_MODEL || "deepseek-chat";
 
 /** 生图上游（内部）；对外一律称「呆呆 Image」 */
 const IMAGE_BASE_URL = (
+  process.env.DAIDAI_IMAGE_BASE_URL ||
   process.env.OPENAI_IMAGE_BASE_URL ||
   process.env.OPENAI_API_BASE ||
   "https://api.openai.com"
 ).replace(/\/$/, "");
-const IMAGE_MODEL = process.env.IMAGE_MODEL || "gpt-image-2";
+const IMAGE_MODEL =
+  process.env.DAIDAI_IMAGE_MODEL || process.env.IMAGE_MODEL || "gpt-image-2";
 
 app.use(express.json({ limit: "20mb" }));
 app.use(ops.requestLogger);
@@ -303,7 +309,7 @@ app.post("/api/admin/probe", adminAuth, async (req, res) => {
       if (!chatKey) {
         return res.status(503).json({ ok: false, error: "未配置呆呆 AI 密钥" });
       }
-      const upstream = await fetch(`${OPENAI_BASE_URL}/v1/chat/completions`, {
+      const upstream = await fetch(`${CHAT_BASE_URL}/v1/chat/completions`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${chatKey}`,
@@ -376,7 +382,7 @@ app.get("/api/public/status", (_req, res) => {
     product: "呆呆 AI",
     imageProduct: "呆呆 Image",
     maintenance: Boolean(settings.maintenance),
-    message: settings.maintenance ? settings.maintenanceMessage : "",
+    message: settings.maintenance ? ops.maintenanceText(settings) : "",
     announce: settings.announce || "",
     apiBase: settings.publicApiBase || "",
     chatReady: chatReady && !settings.blockChat && !settings.maintenance,
@@ -546,7 +552,7 @@ app.post("/api/chat", gateProductApi("chat"), async (req, res) => {
 
   const started = Date.now();
   try {
-    const upstream = await fetch(`${OPENAI_BASE_URL}/v1/chat/completions`, {
+    const upstream = await fetch(`${CHAT_BASE_URL}/v1/chat/completions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${chatKey}`,
