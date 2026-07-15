@@ -188,6 +188,7 @@
             <li>云托管仍需 <code>ADMIN_PASSWORD</code>；小程序登录需 <code>WECHAT_APPID</code> / <code>WECHAT_SECRET</code></li>
             <li>网页端与后台同源已对接（相对路径 <code>/api/*</code>）；用户聊天请用小程序</li>
             <li>对外永不展示供应商名，一律「呆呆 AI / 呆呆 Image」</li>
+            <li><b>维护模式</b>会拦截网站页面与全部业务 API；管理后台仍可进。多副本时设置写在容器本地，建议最小副本先设为 1</li>
           </ol>
           <h3>参考能力来源</h3>
           <p class="muted">结构参考常见开源运营台（对话监控、配置、限流、健康探测），按本项目无独立数据库的约束做了文件持久化设置 + 内存日志。</p>

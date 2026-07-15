@@ -1,4 +1,5 @@
 const { getLayout } = require('../../utils/layout');
+const { checkServiceReady } = require('../../utils/status');
 
 Page({
   data: {
@@ -92,17 +93,20 @@ Page({
 
   goAi() {
     if (this._opening) return;
-    this._opening = true;
-    this.setData({ aiPress: true, aiOpening: true });
+    checkServiceReady().then((st) => {
+      if (!st.ok) return;
+      this._opening = true;
+      this.setData({ aiPress: true, aiOpening: true });
 
-    setTimeout(() => {
-      wx.navigateTo({
-        url: '/pages/chat/index?enter=1',
-        fail: () => {
-          this.setData({ aiOpening: false, aiPress: false });
-          this._opening = false;
-        },
-      });
-    }, 420);
+      setTimeout(() => {
+        wx.navigateTo({
+          url: '/pages/chat/index?enter=1',
+          fail: () => {
+            this.setData({ aiOpening: false, aiPress: false });
+            this._opening = false;
+          },
+        });
+      }, 420);
+    });
   },
 });

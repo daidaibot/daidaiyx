@@ -20,6 +20,7 @@ const IMAGE_MODEL = process.env.IMAGE_MODEL || "gpt-image-2";
 
 app.use(express.json({ limit: "20mb" }));
 app.use(ops.requestLogger);
+app.use(maintenanceApiGate);
 
 const WECHAT_APPID = process.env.WECHAT_APPID || process.env.WX_APPID || "";
 const WECHAT_SECRET = process.env.WECHAT_SECRET || process.env.WX_SECRET || "";
@@ -61,6 +62,8 @@ function gateProductApi(kind) {
     const settings = ops.loadSettings();
     if (settings.maintenance) {
       return res.status(503).json({
+        ok: false,
+        maintenance: true,
         error: { message: settings.maintenanceMessage || "维护中" },
       });
     }
@@ -76,6 +79,44 @@ function gateProductApi(kind) {
     }
     next();
   };
+}
+
+/** 维护模式：拦住业务 API（管理后台除外） */
+function maintenanceApiGate(req, res, next) {
+  if (!req.path.startsWith("/api/")) return next();
+  if (req.path.startsWith("/api/admin")) return next();
+  if (req.path === "/api/public/status" || req.path === "/health") return next();
+  const settings = ops.loadSettings();
+  if (!settings.maintenance) return next();
+  return res.status(503).json({
+    ok: false,
+    maintenance: true,
+    error: { message: settings.maintenanceMessage || "维护中" },
+  });
+}
+
+function maintenancePageHtml(message) {
+  const msg = String(message || "呆呆 AI 维护中，请稍后再试")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>维护中 · 呆呆网络</title>
+<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:PingFang SC,Microsoft YaHei,sans-serif;background:linear-gradient(180deg,#fff,#eef8f1);color:#1e3a2a;text-align:center;padding:24px}
+.card{max-width:420px}.brand{color:#40916c;font-weight:700;letter-spacing:.12em;margin-bottom:12px}.msg{font-size:18px;line-height:1.6;margin:16px 0}.sub{color:#6b7a90;font-size:13px}</style></head>
+<body><div class="card"><div class="brand">呆呆网络</div><h1>维护中</h1><p class="msg">${msg}</p><p class="sub">管理后台不受影响 · /admin/</p></div></body></html>`;
+}
+
+/** 维护模式：拦住网站页面（后台除外） */
+function maintenanceSiteGate(req, res, next) {
+  if (req.path.startsWith("/admin")) return next();
+  if (req.path.startsWith("/api/")) return next();
+  const settings = ops.loadSettings();
+  if (!settings.maintenance) return next();
+  const accept = String(req.headers.accept || "");
+  if (req.method === "GET" && (accept.includes("text/html") || req.path.endsWith(".html") || req.path === "/" || !path.extname(req.path))) {
+    return res.status(503).type("html").send(maintenancePageHtml(settings.maintenanceMessage));
+  }
+  next();
 }
 
 app.post("/api/admin/login", (req, res) => {
@@ -782,6 +823,8 @@ app.use("/admin", express.static(adminDir));
 app.get("/admin", (_req, res) => {
   res.redirect(301, "/admin/");
 });
+
+app.use(maintenanceSiteGate);
 
 /** 网站端：与小程序同款淡绿主页 + 豆包风聊天（不再用旧 web-ui） */
 const siteDir = path.join(__dirname, "site");

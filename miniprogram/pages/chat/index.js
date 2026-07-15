@@ -21,6 +21,7 @@ const {
   clearHistory,
 } = require('../../utils/history');
 const { getLayout } = require('../../utils/layout');
+const { checkServiceReady } = require('../../utils/status');
 
 const SKILLS = [
   {
@@ -231,11 +232,16 @@ Page({
     this.refreshAuth();
     this.refreshMasks();
     this.refreshHistory();
-    // 登录用户进入时恢复最近一次对话（豆包体验）
-    if (isLoggedIn()) {
-      this.restoreLatestSession();
-    }
-    setTimeout(() => this.setData({ entered: true }), 30);
+    checkServiceReady().then((st) => {
+      if (!st.ok) {
+        setTimeout(() => wx.navigateBack({ fail: () => wx.reLaunch({ url: '/pages/index/index' }) }), 400);
+        return;
+      }
+      if (isLoggedIn()) {
+        this.restoreLatestSession();
+      }
+      setTimeout(() => this.setData({ entered: true }), 30);
+    });
   },
 
   onUnload() {
@@ -248,6 +254,16 @@ Page({
     this.applyLayout();
     this.refreshAuth();
     this.refreshHistory();
+    checkServiceReady({ showModal: false }).then((st) => {
+      if (!st.ok) {
+        wx.showModal({
+          title: '维护中',
+          content: st.message || '呆呆 AI 维护中，请稍后再试',
+          showCancel: false,
+          success: () => wx.navigateBack({ fail: () => wx.reLaunch({ url: '/pages/index/index' }) }),
+        });
+      }
+    });
   },
 
   onHide() {
@@ -405,6 +421,15 @@ Page({
     }
     this.openLogin();
     return false;
+  },
+
+  /** 维护检查 + 登录后再执行 */
+  withService(fn) {
+    checkServiceReady().then((st) => {
+      if (!st.ok) return;
+      if (!this.ensureLogin()) return;
+      fn.call(this);
+    });
   },
 
   onLogin() {
@@ -718,34 +743,35 @@ Page({
 
   applyMask(mask) {
     if (!mask) return;
-    if (!this.ensureLogin()) return;
-    const hello = mask.hello || `你好，我是${mask.name}。`;
-    this.setData(
-      {
-      activeMask: mask.id,
-      maskLabel: `${mask.emoji} ${mask.name}`,
-      maskPrompt: mask.prompt,
-      navTitle: '呆呆 AI',
-      navSub: `面具 · ${mask.name}`,
-      welcomeEmoji: mask.emoji,
-      welcomeHi: mask.name,
-      welcomeSub: `呆呆 AI · ${mask.desc}`,
-      placeholder: `以「${mask.name}」继续说…`,
-      showMaskPanel: false,
-      showMaskCreate: false,
-      showSheet: false,
-      sessionId: `s_${Date.now()}`,
-      messages: [
+    this.withService(() => {
+      const hello = mask.hello || `你好，我是${mask.name}。`;
+      this.setData(
         {
-          id: uid(),
-          role: 'ai',
-          content: hello,
-        },
-      ],
-      scrollInto: 'm-bottom',
+        activeMask: mask.id,
+        maskLabel: `${mask.emoji} ${mask.name}`,
+        maskPrompt: mask.prompt,
+        navTitle: '呆呆 AI',
+        navSub: `面具 · ${mask.name}`,
+        welcomeEmoji: mask.emoji,
+        welcomeHi: mask.name,
+        welcomeSub: `呆呆 AI · ${mask.desc}`,
+        placeholder: `以「${mask.name}」继续说…`,
+        showMaskPanel: false,
+        showMaskCreate: false,
+        showSheet: false,
+        sessionId: `s_${Date.now()}`,
+        messages: [
+          {
+            id: uid(),
+            role: 'ai',
+            content: hello,
+          },
+        ],
+        scrollInto: 'm-bottom',
       },
       () => this.saveCurrentSession()
     );
+    });
   },
 
   onPickMask(e) {
@@ -781,60 +807,62 @@ Page({
   },
 
   onSend() {
-    if (!this.ensureLogin()) return;
-    const text = (this.data.input || '').trim();
-    if (!text || this.data.busy) return;
-    if (this.data.activeSkill === 'image') {
-      this.sendImage(text);
-    } else if (this.data.activeSkill === 'edit') {
-      this.sendImageEdit(text);
-    } else {
-      this.sendText(text);
-    }
+    this.withService(() => {
+      const text = (this.data.input || '').trim();
+      if (!text || this.data.busy) return;
+      if (this.data.activeSkill === 'image') {
+        this.sendImage(text);
+      } else if (this.data.activeSkill === 'edit') {
+        this.sendImageEdit(text);
+      } else {
+        this.sendText(text);
+      }
+    });
   },
 
   pickEditImage() {
-    if (!this.ensureLogin()) return;
-    wx.chooseMedia({
-      count: 1,
-      mediaType: ['image'],
-      sourceType: ['album', 'camera'],
-      sizeType: ['compressed'],
-      success: (res) => {
-        const file = (res.tempFiles && res.tempFiles[0]) || {};
-        const path = file.tempFilePath;
-        if (!path) return;
-        if (file.size && file.size > 8 * 1024 * 1024) {
-          wx.showToast({ title: '图片请小于 8MB', icon: 'none' });
-          return;
-        }
-        const fs = wx.getFileSystemManager();
-        fs.readFile({
-          filePath: path,
-          encoding: 'base64',
-          success: (r) => {
-            const lower = path.toLowerCase();
-            const mime = lower.endsWith('.png')
-              ? 'image/png'
-              : lower.endsWith('.webp')
-                ? 'image/webp'
-                : 'image/jpeg';
-            this.setData(
-              {
-                activeSkill: 'edit',
-                skillLabel: '改图',
-                placeholder: '说说怎么改这张图…',
-                editImagePath: path,
-                editImageB64: r.data,
-                editMime: mime,
-                showSheet: false,
-              },
-              () => this.setData({ canSend: this.computeCanSend(this.data.input) })
-            );
-          },
-          fail: () => wx.showToast({ title: '读取图片失败', icon: 'none' }),
-        });
-      },
+    this.withService(() => {
+      wx.chooseMedia({
+        count: 1,
+        mediaType: ['image'],
+        sourceType: ['album', 'camera'],
+        sizeType: ['compressed'],
+        success: (res) => {
+          const file = (res.tempFiles && res.tempFiles[0]) || {};
+          const path = file.tempFilePath;
+          if (!path) return;
+          if (file.size && file.size > 8 * 1024 * 1024) {
+            wx.showToast({ title: '图片请小于 8MB', icon: 'none' });
+            return;
+          }
+          const fs = wx.getFileSystemManager();
+          fs.readFile({
+            filePath: path,
+            encoding: 'base64',
+            success: (r) => {
+              const lower = path.toLowerCase();
+              const mime = lower.endsWith('.png')
+                ? 'image/png'
+                : lower.endsWith('.webp')
+                  ? 'image/webp'
+                  : 'image/jpeg';
+              this.setData(
+                {
+                  activeSkill: 'edit',
+                  skillLabel: '改图',
+                  placeholder: '说说怎么改这张图…',
+                  editImagePath: path,
+                  editImageB64: r.data,
+                  editMime: mime,
+                  showSheet: false,
+                },
+                () => this.setData({ canSend: this.computeCanSend(this.data.input) })
+              );
+            },
+            fail: () => wx.showToast({ title: '读取图片失败', icon: 'none' }),
+          });
+        },
+      });
     });
   },
 
