@@ -78,14 +78,16 @@
           <view class="bubble-wrap">
             <view class="bubble {{item.role}}">
               <text wx:if="{{item.content}}" class="bubble-text" user-select>{{item.content}}</text>
-              <image
-                wx:if="{{item.image}}"
-                class="bubble-img"
-                src="{{item.image}}"
-                mode="widthFix"
-                bindtap="previewImage"
-                data-src="{{item.image}}"
-              />
+              <view wx:if="{{item.image}}" class="bubble-img-wrap">
+                <image
+                  class="bubble-img"
+                  src="{{item.image}}"
+                  mode="widthFix"
+                  bindtap="previewImage"
+                  data-src="{{item.image}}"
+                />
+                <text class="img-mark">呆呆 AI 生成</text>
+              </view>
               <view wx:if="{{item.loading}}" class="typing">
                 <view class="dot"></view>
                 <view class="dot"></view>

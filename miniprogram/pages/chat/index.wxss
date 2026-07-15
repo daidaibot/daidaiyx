@@ -320,13 +320,32 @@
   white-space: pre-wrap;
 }
 
+.bubble-img-wrap {
+  position: relative;
+  display: inline-block;
+  max-width: 480rpx;
+  margin-top: 8rpx;
+}
+
 .bubble-img {
   display: block;
   width: 100%;
   max-width: 480rpx;
   border-radius: 16rpx;
-  margin-top: 8rpx;
   background: #f2f3f5;
+}
+
+.img-mark {
+  position: absolute;
+  right: 12rpx;
+  bottom: 12rpx;
+  padding: 4rpx 12rpx;
+  border-radius: 8rpx;
+  background: rgba(0, 0, 0, 0.4);
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 20rpx;
+  line-height: 1.4;
+  pointer-events: none;
 }
 
 .typing {

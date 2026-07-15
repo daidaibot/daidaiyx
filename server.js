@@ -1,6 +1,8 @@
 ﻿const path = require("path");
+const fs = require("fs");
 const express = require("express");
 const ops = require("./lib/ops");
+const imageOut = require("./lib/imageOut");
 
 const app = express();
 const PORT = Number(process.env.PORT) || 80;
@@ -177,6 +179,7 @@ function maintenanceApiGate(req, res, next) {
   if (req.path === "/api/public/status" || req.path === "/health" || req.path === "/api/report-error") {
     return next();
   }
+  if (req.path.startsWith("/api/image/file/")) return next();
   const settings = ops.loadSettings();
   if (!settings.maintenance) return next();
   return res.status(503).json({
@@ -863,11 +866,14 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
     prompt,
     size,
     n: 1,
+    // 尽量让上游返回更小体积，避免小程序解析超大 JSON 失败（OpenAI 已扣费但前端当失败）
+    quality: "medium",
+    output_format: "jpeg",
   };
 
   const started = Date.now();
   try {
-    const upstream = await fetch(`${IMAGE_BASE_URL}/v1/images/generations`, {
+    let upstream = await fetch(`${IMAGE_BASE_URL}/v1/images/generations`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${imageKey}`,
@@ -875,8 +881,19 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
       },
       body: JSON.stringify(payload),
     });
-
-    const raw = await upstream.text();
+    let raw = await upstream.text();
+    // 若中转/模型不接受 quality、output_format，回退最小参数
+    if (!upstream.ok && /unknown|unsupported|invalid|quality|output_format/i.test(raw)) {
+      upstream = await fetch(`${IMAGE_BASE_URL}/v1/images/generations`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${imageKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ model, prompt, size, n: 1 }),
+      });
+      raw = await upstream.text();
+    }
     let data = null;
     try {
       data = JSON.parse(raw);
@@ -910,14 +927,7 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
     }
 
     const item = data?.data?.[0] || {};
-    let image = "";
-    if (item.b64_json) {
-      image = `data:image/png;base64,${item.b64_json}`;
-    } else if (item.url) {
-      image = item.url;
-    }
-
-    if (!image) {
+    if (!item.b64_json && !item.url) {
       stats.imageFail += 1;
       logApiError(
         {
@@ -935,14 +945,24 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
       });
     }
 
+    const saved = await imageOut.saveGeneratedImage(item);
+    const origin = imageOut.publicOrigin(req, ops.loadSettings());
+    const imageUrl = origin
+      ? `${origin}/api/image/file/${saved.id}`
+      : `/api/image/file/${saved.id}`;
+
     stats.image += 1;
     ops.bumpHourly("image");
     ops.pushLatency("image", Date.now() - started);
+    console.log(
+      `[image-ok] id=${saved.id} bytes=${saved.bytes} sharp=${imageOut.hasSharp()} ms=${Date.now() - started}`
+    );
     res.json({
       ok: true,
       product: "呆呆 Image",
       size,
-      image,
+      image: imageUrl,
+      imageId: saved.id,
       revised_prompt: item.revised_prompt || "",
     });
   } catch (err) {
@@ -1123,14 +1143,7 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
     }
 
     const item = data?.data?.[0] || {};
-    let image = "";
-    if (item.b64_json) {
-      image = `data:image/png;base64,${item.b64_json}`;
-    } else if (item.url) {
-      image = item.url;
-    }
-
-    if (!image) {
+    if (!item.b64_json && !item.url) {
       stats.imageEditFail += 1;
       logApiError(
         {
@@ -1146,6 +1159,12 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
       return res.status(502).json({ error: { message: "上游未返回图片数据" } });
     }
 
+    const saved = await imageOut.saveGeneratedImage(item);
+    const origin = imageOut.publicOrigin(req, ops.loadSettings());
+    const imageUrl = origin
+      ? `${origin}/api/image/file/${saved.id}`
+      : `/api/image/file/${saved.id}`;
+
     stats.imageEdit += 1;
     ops.bumpHourly("imageEdit");
     ops.pushLatency("imageEdit", Date.now() - started);
@@ -1153,7 +1172,8 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
       ok: true,
       product: "呆呆 Image",
       size,
-      image,
+      image: imageUrl,
+      imageId: saved.id,
       revised_prompt: item.revised_prompt || "",
     });
   } catch (err) {
@@ -1177,6 +1197,16 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
       },
     });
   }
+});
+
+app.get("/api/image/file/:id", (req, res) => {
+  const file = imageOut.resolveImageFile(req.params.id);
+  if (!file) {
+    return res.status(404).json({ error: { message: "图片不存在或已过期" } });
+  }
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.type("image/jpeg");
+  fs.createReadStream(file).pipe(res);
 });
 
 const adminDir = path.join(__dirname, "admin");
@@ -1205,6 +1235,8 @@ app.get("*", (req, res, next) => {
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(
-    `呆呆网络 listening on ${PORT}, chatConfigured=${Boolean(ops.getChatKey())}, site=/, admin=/admin/`
+    `呆呆网络 listening on ${PORT}, chatConfigured=${Boolean(ops.getChatKey())}, imageBase=${IMAGE_BASE_URL}, sharp=${imageOut.hasSharp()}, site=/, admin=/admin/`
   );
+  imageOut.cleanupOldImages();
+  setInterval(() => imageOut.cleanupOldImages(), 6 * 3600 * 1000).unref?.();
 });

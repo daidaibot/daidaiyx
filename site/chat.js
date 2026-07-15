@@ -291,14 +291,14 @@
         if (m.role === "user") {
           return `<div class="row mine"><div class="bubble-wrap"><div class="bubble user">${escapeHtml(
             m.content || ""
-          )}${m.image ? `<img class="bubble-img" src="${m.image}" alt="" />` : ""}</div></div></div>`;
+          )}${m.image ? `<div class="bubble-img-wrap"><img class="bubble-img" src="${m.image}" alt="" /><span class="img-mark">呆呆 AI 生成</span></div>` : ""}</div></div></div>`;
         }
         const emoji = (findMask(state.activeMask) || {}).emoji || "呆";
         return `<div class="row ai"><div class="avatar">${emoji.length <= 2 ? emoji : "呆"}</div><div class="bubble-wrap"><div class="bubble ai">${
           m.loading
             ? '<div class="typing"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>'
             : escapeHtml(m.content || "")
-        }${m.image ? `<img class="bubble-img" src="${m.image}" alt="" />` : ""}</div></div></div>`;
+        }${m.image ? `<div class="bubble-img-wrap"><img class="bubble-img" src="${m.image}" alt="" /><span class="img-mark">呆呆 AI 生成</span></div>` : ""}</div></div></div>`;
       })
       .join("");
     $("bottom").scrollIntoView({ behavior: "smooth", block: "end" });
