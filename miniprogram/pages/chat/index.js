@@ -160,12 +160,36 @@ function reportClientError(a, b) {
       url: `${base}/api/report-error`,
       method: 'POST',
       timeout: 8000,
+      header: { 'Content-Type': 'application/json' },
       data: payload,
       fail: () => {},
     });
   } catch (e) {
     /* ignore */
   }
+}
+
+function formatImageFail(res, data, prompt) {
+  const rawMsg =
+    (data && data.error && data.error.message) ||
+    (typeof (data && data.error) === 'string' ? data.error : '') ||
+    (data && data.message) ||
+    '';
+  const errId = (data && data.error && data.error.id) || '';
+  const status = (res && res.statusCode) || '?';
+  const tip =
+    friendlyError(rawMsg) ||
+    rawMsg ||
+    `生图失败（HTTP ${status}）`;
+  const lines = [tip];
+  if (errId) lines.push(`错误编号：${errId}`);
+  lines.push('请到管理后台 → 错误日志 查看明细');
+  return {
+    tip: lines.join('\n'),
+    rawMsg: rawMsg || tip,
+    status,
+    errId,
+  };
 }
 
 function demoTextReply(question, skill, mask) {
@@ -1066,7 +1090,7 @@ Page({
       timeout: 180000,
       data: { prompt, size },
       success: (res) => {
-        const data = res.data || {};
+        const data = typeof res.data === 'object' && res.data ? res.data : {};
         if (data.image) {
           this.updateMessage(aiId, {
             loading: false,
@@ -1074,39 +1098,37 @@ Page({
             image: data.image,
           });
         } else {
-          const rawMsg =
-            (data.error && data.error.message) ||
-            (typeof data.error === 'string' ? data.error : '') ||
-            data.message ||
-            '';
-          const shown =
-            friendlyError(rawMsg) ||
-            `生图失败（${res.statusCode || '?'}），请到管理后台看错误日志`;
+          const info = formatImageFail(res, data, prompt);
           reportClientError(apiBase, {
             source: 'mp-image',
-            message: rawMsg || shown,
-            status: res.statusCode,
+            message: info.rawMsg,
+            status: info.status,
             path: '/api/image',
-            detail: `prompt=${prompt.slice(0, 100)}`,
+            detail: `prompt=${prompt.slice(0, 100)};id=${info.errId}`,
           });
           this.updateMessage(aiId, {
             loading: false,
-            content: shown,
+            content: info.tip,
             image: '',
           });
         }
         this.setData({ busy: false }, () => this.saveCurrentSession());
       },
       fail: (err) => {
-        const tip =
-          friendlyError(err && err.errMsg) ||
-          '无法连接服务，请检查域名与 apiBase';
+        const tip = [
+          '无法连接生图服务',
+          (err && err.errMsg) || '',
+          `请检查小程序 apiBase：${apiBase || '（未配置）'}`,
+          '以及 request 合法域名是否已加该域名',
+        ]
+          .filter(Boolean)
+          .join('\n');
         reportClientError(apiBase, {
           source: 'mp-image',
           message: (err && err.errMsg) || tip,
           status: 0,
           path: '/api/image',
-          detail: 'wx.request fail',
+          detail: `apiBase=${apiBase}`,
         });
         this.updateMessage(aiId, {
           loading: false,

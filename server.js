@@ -14,12 +14,12 @@ const CHAT_BASE_URL = (
 const DEFAULT_MODEL =
   process.env.DAIDAI_AI_MODEL || process.env.CHAT_MODEL || "deepseek-chat";
 
-/** 生图上游（内部）；对外一律称「呆呆 Image」 */
+/** 生图上游（内部）；对外一律称「呆呆 Image」；默认走呆呆中转，避免国内直连失败 */
 const IMAGE_BASE_URL = (
   process.env.DAIDAI_IMAGE_BASE_URL ||
   process.env.OPENAI_IMAGE_BASE_URL ||
   process.env.OPENAI_API_BASE ||
-  "https://api.openai.com"
+  "https://openai.dai520.cn"
 ).replace(/\/$/, "");
 const IMAGE_MODEL =
   process.env.DAIDAI_IMAGE_MODEL || process.env.IMAGE_MODEL || "gpt-image-2";
@@ -49,14 +49,28 @@ const stats = {
 };
 
 function logApiError(entry, res) {
-  if (res && res.locals) res.locals.errorLogged = true;
-  ops.pushError(
+  const row = ops.pushError(
     Object.assign(
       {
         at: Date.now(),
       },
       entry || {}
     )
+  );
+  if (res && res.locals) {
+    res.locals.errorLogged = true;
+    res.locals.errorId = row && row.id;
+  }
+  return row;
+}
+
+function errorPayload(message, res, extra) {
+  return Object.assign(
+    {
+      message: String(message || "服务暂时繁忙"),
+      id: (res && res.locals && res.locals.errorId) || "",
+    },
+    extra || {}
   );
 }
 
@@ -281,7 +295,19 @@ app.get("/api/admin/logs", adminAuth, (req, res) => {
 
 app.get("/api/admin/errors", adminAuth, (req, res) => {
   const limit = Math.min(150, Number(req.query.limit) || 60);
-  res.json({ ok: true, errors: ops.getErrors(limit) });
+  const errors = ops.getErrors(limit);
+  res.json({
+    ok: true,
+    errors,
+    meta: {
+      count: errors.length,
+      dataDir: ops.DATA_DIR,
+      tip:
+        errors.length === 0
+          ? "若刚失败却仍为空：云托管请固定 1 个实例，并挂载持久盘到 /app/data"
+          : "",
+    },
+  });
 });
 
 app.post("/api/admin/logs/clear", adminAuth, (_req, res) => {
@@ -808,9 +834,9 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
     );
     stats.imageFail += 1;
     return res.status(503).json({
-      error: {
-        message: "呆呆 Image 服务未就绪，请配置 DAIDAI_IMAGE_KEY",
-      },
+      error: errorPayload("呆呆 Image 服务未就绪，请配置 DAIDAI_IMAGE_KEY", res, {
+        hint: "env:DAIDAI_IMAGE_KEY",
+      }),
     });
   }
 
@@ -827,7 +853,7 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
       },
       res
     );
-    return res.status(400).json({ error: { message: "prompt 不能为空" } });
+    return res.status(400).json({ error: errorPayload("prompt 不能为空", res) });
   }
 
   const size = body.size || "1024x1024";
@@ -875,7 +901,11 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
         res
       );
       return res.status(upstream.status).json({
-        error: { message: sanitizePublicError(message, `生图失败（${upstream.status}）`) },
+        error: errorPayload(
+          sanitizePublicError(message, `生图失败（${upstream.status}）`),
+          res,
+          { base: IMAGE_BASE_URL, model }
+        ),
       });
     }
 
@@ -900,7 +930,9 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
         },
         res
       );
-      return res.status(502).json({ error: { message: "上游未返回图片数据" } });
+      return res.status(502).json({
+        error: errorPayload("上游未返回图片数据", res, { base: IMAGE_BASE_URL, model }),
+      });
     }
 
     stats.image += 1;
@@ -923,15 +955,17 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
         message,
         status: 502,
         path: "/api/image",
-        detail: `model=${IMAGE_MODEL} base=${IMAGE_BASE_URL} · 常见原因：未配 DAIDAI_IMAGE_BASE_URL 仍直连官方被墙，或中转不可达`,
+        detail: `model=${IMAGE_MODEL} base=${IMAGE_BASE_URL} · 常见原因：中转不可达或密钥无效`,
         ip: ops.clientIp(req),
       },
       res
     );
     res.status(502).json({
-      error: {
-        message: sanitizePublicError(message, "生图代理失败，请检查中转与密钥"),
-      },
+      error: errorPayload(
+        sanitizePublicError(message, "生图代理失败，请检查中转与密钥"),
+        res,
+        { base: IMAGE_BASE_URL, model: IMAGE_MODEL }
+      ),
     });
   }
 });

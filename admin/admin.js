@@ -12,6 +12,7 @@ const TITLES = {
 let overviewCache = null;
 let logsCache = [];
 let errorsCache = [];
+let errMetaTip = "";
 let autoTimer = null;
 let toastTimer = null;
 
@@ -390,7 +391,9 @@ function renderErrors() {
       `${r.source} ${r.message} ${r.status} ${r.detail} ${r.path}`.toLowerCase().includes(q)
     );
   }
-  document.getElementById("errCount").textContent = `显示 ${rows.length} / ${errorsCache.length}`;
+  document.getElementById("errCount").textContent = `显示 ${rows.length} / ${errorsCache.length}${
+    errMetaTip ? " · " + errMetaTip : ""
+  }`;
   document.getElementById("errorsBody").innerHTML = rows.length
     ? rows
         .map(
@@ -416,6 +419,7 @@ async function loadLogs() {
 async function loadErrors() {
   const data = await api("/api/admin/errors?limit=150");
   errorsCache = data.errors || [];
+  errMetaTip = data.meta?.tip || "";
   renderErrors();
   markRefresh();
 }

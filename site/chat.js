@@ -116,14 +116,24 @@
 
   function friendlyError(msg) {
     const s = String(msg || "");
-    if (/api.?key|OPENAI|DeepSeek|deepseek|gpt-?image|openai|unauthorized|401|403|503|未配置/i.test(s)) {
+    if (/api.?key|OPENAI|DeepSeek|deepseek|gpt-?image|openai|unauthorized|401|403|503|未配置|未就绪/i.test(s)) {
       return "呆呆 AI 暂时不可用，请稍后再试";
     }
     if (/timeout|超时|fail|network|ERR_/i.test(s)) return "网络不太稳定，请稍后再试";
-    return (
-      s.replace(/DeepSeek|OpenAI|GPT[\s-]?Image|gpt-image-\d+|Claude/gi, "呆呆 AI").slice(0, 120) ||
-      "呆呆 AI 处理失败，请稍后再试"
-    );
+    if (!s) return "";
+    return s.replace(/DeepSeek|OpenAI|GPT[\s-]?Image|gpt-image-\d+|Claude/gi, "呆呆 AI").slice(0, 120);
+  }
+
+  async function reportClientError(payload) {
+    try {
+      await fetch("/api/report-error", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload || {}),
+      });
+    } catch {
+      /* ignore */
+    }
   }
 
   function demoReply(q, skill, mask) {
@@ -526,13 +536,34 @@
       if (data.image) {
         updateMsg(aiId, { loading: false, content: "", image: data.image });
       } else {
-        updateMsg(aiId, {
-          loading: false,
-          content: friendlyError(data?.error?.message) || "生图失败，请稍后再试",
+        const rawMsg = data?.error?.message || "";
+        const errId = data?.error?.id || "";
+        const shown = [
+          friendlyError(rawMsg) || rawMsg || `生图失败（HTTP ${res.status || "?"}）`,
+          errId ? `错误编号：${errId}` : "",
+          "请到管理后台 → 错误日志 查看明细",
+        ]
+          .filter(Boolean)
+          .join("\n");
+        reportClientError({
+          source: "web-image",
+          message: rawMsg || shown,
+          status: res.status,
+          path: "/api/image",
+          detail: `prompt=${prompt.slice(0, 100)};id=${errId}`,
         });
+        updateMsg(aiId, { loading: false, content: shown });
       }
-    } catch {
-      updateMsg(aiId, { loading: false, content: "网络不太稳定，请稍后再试" });
+    } catch (e) {
+      const tip = `无法连接生图服务\n${(e && e.message) || "网络异常"}`;
+      reportClientError({
+        source: "web-image",
+        message: (e && e.message) || tip,
+        status: "network",
+        path: "/api/image",
+        detail: `prompt=${prompt.slice(0, 100)}`,
+      });
+      updateMsg(aiId, { loading: false, content: tip });
     }
     state.busy = false;
     updateChrome();
