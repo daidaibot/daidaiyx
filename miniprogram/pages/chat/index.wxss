@@ -508,6 +508,13 @@
   box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.12);
 }
 
+.edit-clear {
+  margin-top: 6rpx;
+  font-size: 20rpx;
+  color: #ec4899;
+  line-height: 1.2;
+}
+
 .plus {
   width: 64rpx;
   height: 64rpx;

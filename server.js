@@ -1202,8 +1202,89 @@ app.get("/api/image/job/:id", (req, res) => {
 });
 
 /**
- * AI 改图：原图 + 文字指令 → gpt-image-2 /v1/images/edits
- * body: { prompt, image_b64, mime?, size?, model? }
+ * 改图核心：原图 + 指令 → 上游 edits → 压缩打水印存盘
+ */
+async function runImageEditOnce({ imageKey, prompt, imageB64, mime, size, origin }) {
+  const model = IMAGE_MODEL;
+  const type = mime || "image/png";
+  const ext = type.includes("jpeg") || type.includes("jpg") ? "jpg" : "png";
+  const buf = Buffer.from(imageB64, "base64");
+  if (!buf.length) {
+    const err = new Error("图片数据无效");
+    err.status = 400;
+    throw err;
+  }
+  if (buf.length > 18 * 1024 * 1024) {
+    const err = new Error("图片过大，请压缩后再试");
+    err.status = 400;
+    throw err;
+  }
+
+  async function callEdit(fieldName) {
+    const form = new FormData();
+    form.append("model", model);
+    form.append("prompt", prompt);
+    form.append("size", size || "1024x1024");
+    form.append("n", "1");
+    form.append(fieldName, new Blob([buf], { type }), `upload.${ext}`);
+    const upstream = await outboundFetch(`${IMAGE_BASE_URL}/v1/images/edits`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${imageKey}` },
+      body: form,
+    });
+    const raw = await upstream.text();
+    let data = null;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = null;
+    }
+    return { upstream, raw, data };
+  }
+
+  const started = Date.now();
+  let { upstream, raw, data } = await callEdit("image[]");
+  if (!upstream.ok) {
+    const retry = await callEdit("image");
+    if (retry.upstream.ok) {
+      upstream = retry.upstream;
+      raw = retry.raw;
+      data = retry.data;
+    } else {
+      const message =
+        retry.data?.error?.message ||
+        data?.error?.message ||
+        (retry.raw || raw || "").slice(0, 300) ||
+        `上游改图错误 ${retry.upstream.status}`;
+      const err = new Error(message);
+      err.status = retry.upstream.status || 502;
+      throw err;
+    }
+  }
+
+  const item = data?.data?.[0] || {};
+  if (!item.b64_json && !item.url) {
+    const err = new Error("上游未返回图片数据");
+    err.status = 502;
+    throw err;
+  }
+  const saved = await imageOut.saveGeneratedImage(item);
+  const imageUrl = origin
+    ? `${origin}/api/image/file/${saved.id}`
+    : `/api/image/file/${saved.id}`;
+  return {
+    image: imageUrl,
+    imageId: saved.id,
+    bytes: saved.bytes,
+    ms: Date.now() - started,
+    revised_prompt: item.revised_prompt || "",
+    size: size || "1024x1024",
+  };
+}
+
+/**
+ * AI 改图：默认异步 job（避免云托管网关 504），与生图一致可轮询 /api/image/job/:id
+ * body: { prompt, image_b64, mime?, size?, sync? }
  */
 app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
   const imageKey = ops.getImageKey();
@@ -1259,152 +1340,112 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
   }
 
   let mime = body.mime || "image/png";
-  const dataUrl = imageB64.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  const dataUrl = imageB64.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/);
   if (dataUrl) {
     mime = dataUrl[1];
     imageB64 = dataUrl[2];
   }
+  // 去掉可能的空白换行
+  imageB64 = imageB64.replace(/\s+/g, "");
 
   const size = body.size || "1024x1024";
-  const model = IMAGE_MODEL;
-  const ext = mime.includes("jpeg") || mime.includes("jpg") ? "jpg" : "png";
+  const origin = imageOut.publicOrigin(req, ops.loadSettings());
+  const wantSync = body.sync === true || body.sync === 1 || body.sync === "1";
 
-  const started = Date.now();
-  try {
-    const buf = Buffer.from(imageB64, "base64");
-    if (!buf.length) {
-      logApiError(
-        {
-          source: "imageEdit",
-          message: "图片数据无效",
-          status: 400,
-          path: "/api/image/edit",
-          ip: ops.clientIp(req),
-        },
-        res
-      );
-      return res.status(400).json({ error: { message: "图片数据无效" } });
-    }
-    if (buf.length > 18 * 1024 * 1024) {
-      logApiError(
-        {
-          source: "imageEdit",
-          message: "图片过大",
-          status: 400,
-          path: "/api/image/edit",
-          detail: `bytes=${buf.length}`,
-          ip: ops.clientIp(req),
-        },
-        res
-      );
-      return res.status(400).json({ error: { message: "图片过大，请压缩后再试" } });
-    }
-
-    async function callEdit(fieldName) {
-      const form = new FormData();
-      form.append("model", model);
-      form.append("prompt", prompt);
-      form.append("size", size);
-      form.append("n", "1");
-      form.append(fieldName, new Blob([buf], { type: mime }), `upload.${ext}`);
-      const upstream = await outboundFetch(`${IMAGE_BASE_URL}/v1/images/edits`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${imageKey}` },
-        body: form,
-      });
-      const raw = await upstream.text();
-      let data = null;
+  if (!wantSync) {
+    const job = imageJobs.createJob({ prompt: prompt.slice(0, 200), size, kind: "edit" });
+    res.json({
+      ok: true,
+      pending: true,
+      status: "pending",
+      jobId: job.id,
+      id: job.id,
+      product: "呆呆 Image",
+      message: "改图任务已提交，请轮询 /api/image/job/:id",
+    });
+    setImmediate(async () => {
       try {
-        data = JSON.parse(raw);
-      } catch {
-        data = null;
-      }
-      return { upstream, raw, data };
-    }
-
-    let { upstream, raw, data } = await callEdit("image[]");
-    if (!upstream.ok) {
-      const retry = await callEdit("image");
-      if (retry.upstream.ok) {
-        upstream = retry.upstream;
-        raw = retry.raw;
-        data = retry.data;
-      } else {
-        const message =
-          retry.data?.error?.message ||
-          data?.error?.message ||
-          (retry.raw || raw || "").slice(0, 300) ||
-          `上游改图错误 ${retry.upstream.status}`;
-        stats.imageEditFail += 1;
-        logApiError(
-          {
-            source: "imageEdit",
-            message,
-            status: retry.upstream.status,
-            path: "/api/image/edit",
-            detail: `model=${model} base=${IMAGE_BASE_URL} prompt=${prompt.slice(0, 80)}`,
-            ip: ops.clientIp(req),
-          },
-          res
-        );
-        return res.status(retry.upstream.status).json({
-          error: { message: sanitizePublicError(message, `改图失败（${retry.upstream.status}）`) },
+        const result = await runImageEditOnce({
+          imageKey,
+          prompt,
+          imageB64,
+          mime,
+          size,
+          origin,
         });
-      }
-    }
-
-    const item = data?.data?.[0] || {};
-    if (!item.b64_json && !item.url) {
-      stats.imageEditFail += 1;
-      logApiError(
-        {
+        stats.imageEdit += 1;
+        ops.bumpHourly("imageEdit");
+        ops.pushLatency("imageEdit", result.ms);
+        imageJobs.updateJob(job.id, {
+          status: "done",
+          image: result.image,
+          imageId: result.imageId,
+          ms: result.ms,
+          error: "",
+        });
+        console.log(`[image-edit-ok] job=${job.id} id=${result.imageId} ms=${result.ms}`);
+      } catch (err) {
+        stats.imageEditFail += 1;
+        const message = err instanceof Error ? err.message : String(err);
+        const status = err && err.status ? err.status : 502;
+        logApiError({
           source: "imageEdit",
-          message: "上游未返回图片数据",
-          status: 502,
+          message,
+          status,
           path: "/api/image/edit",
-          detail: `model=${model} base=${IMAGE_BASE_URL} raw=${String(raw).slice(0, 200)}`,
+          detail: `job=${job.id} model=${IMAGE_MODEL} base=${IMAGE_BASE_URL} prompt=${prompt.slice(0, 80)}`,
           ip: ops.clientIp(req),
-        },
-        res
-      );
-      return res.status(502).json({ error: { message: "上游未返回图片数据" } });
-    }
+        });
+        imageJobs.updateJob(job.id, {
+          status: "error",
+          error: sanitizePublicError(message, "改图失败"),
+          ms: Date.now() - job.createdAt,
+        });
+        console.error(`[image-edit-fail] job=${job.id}`, message);
+      }
+    });
+    return;
+  }
 
-    const saved = await imageOut.saveGeneratedImage(item);
-    const origin = imageOut.publicOrigin(req, ops.loadSettings());
-    const imageUrl = origin
-      ? `${origin}/api/image/file/${saved.id}`
-      : `/api/image/file/${saved.id}`;
-
+  try {
+    const result = await runImageEditOnce({
+      imageKey,
+      prompt,
+      imageB64,
+      mime,
+      size,
+      origin,
+    });
     stats.imageEdit += 1;
     ops.bumpHourly("imageEdit");
-    ops.pushLatency("imageEdit", Date.now() - started);
+    ops.pushLatency("imageEdit", result.ms);
     res.json({
       ok: true,
       product: "呆呆 Image",
-      size,
-      image: imageUrl,
-      imageId: saved.id,
-      revised_prompt: item.revised_prompt || "",
+      size: result.size,
+      image: result.image,
+      imageId: result.imageId,
+      revised_prompt: result.revised_prompt || "",
     });
   } catch (err) {
     console.error("image edit proxy error:", err);
     stats.imageEditFail += 1;
     const message = err instanceof Error ? err.message : String(err);
+    const status = err && err.status ? err.status : 502;
     logApiError(
       {
         source: "imageEdit",
         message,
-        status: 502,
+        status,
         path: "/api/image/edit",
         detail: `model=${IMAGE_MODEL} base=${IMAGE_BASE_URL}`,
         ip: ops.clientIp(req),
       },
       res
     );
-    res.status(502).json({
+    res.status(status >= 400 && status < 600 ? status : 502).json({
       error: {
-        message: sanitizePublicError(message, "改图失败，请检查代理池、上游与密钥"),
+        message: sanitizePublicError(message, "改图失败，请检查上游与密钥"),
       },
     });
   }

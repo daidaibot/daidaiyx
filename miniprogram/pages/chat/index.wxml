@@ -148,6 +148,11 @@
           />
           <text wx:else class="plus-upload-ico">⬆</text>
         </view>
+        <view
+          wx:if="{{activeSkill === 'edit' && editImagePath}}"
+          class="edit-clear"
+          catchtap="clearEditImage"
+        >换图</view>
         <view wx:else class="plus" bindtap="onPlus">＋</view>
       </view>
       <input

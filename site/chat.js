@@ -297,6 +297,27 @@
     </div>`;
   }
 
+  async function downloadImageFile(src) {
+    const url = String(src || "").trim();
+    if (!url) return;
+    try {
+      const join = url.includes("?") ? "&" : "?";
+      const res = await fetch(`${url}${join}download=1`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const obj = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = obj;
+      a.download = "daidai-ai.jpg";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(obj);
+    } catch {
+      window.open(url, "_blank", "noopener");
+    }
+  }
+
   function openImageLightbox(src) {
     const url = String(src || "").trim();
     if (!url) return;
@@ -308,9 +329,11 @@
     img.src = url;
     if (open) open.href = url;
     if (dl) {
-      const join = url.includes("?") ? "&" : "?";
-      dl.href = `${url}${join}download=1`;
-      dl.setAttribute("download", "daidai-ai.jpg");
+      dl.href = "#";
+      dl.onclick = (ev) => {
+        ev.preventDefault();
+        downloadImageFile(url);
+      };
     }
     box.classList.remove("hidden");
   }
@@ -665,14 +688,28 @@
       const data = await res.json().catch(() => ({}));
       if (data.image) {
         updateMsg(aiId, { loading: false, content: "", image: data.image });
-      } else {
-        updateMsg(aiId, {
-          loading: false,
-          content: friendlyError(data?.error?.message) || "改图失败，请稍后再试",
+      } else if (data.pending && (data.jobId || data.id)) {
+        updateMsg(aiId, { loading: true, content: "呆呆 AI 改图中，请稍候…" });
+        const job = await pollImageJob(data.jobId || data.id, () => {
+          updateMsg(aiId, { loading: true, content: "呆呆 AI 改图中，请稍候…" });
         });
+        updateMsg(aiId, { loading: false, content: "", image: job.image });
+      } else {
+        const tip = friendlyError(data?.error?.message) || "改图失败，请稍后再试";
+        reportClientError({
+          source: "web-image-edit",
+          message: data?.error?.message || tip,
+          status: res.status,
+          path: "/api/image/edit",
+          detail: `prompt=${prompt.slice(0, 60)}`,
+        });
+        updateMsg(aiId, { loading: false, content: tip });
       }
-    } catch {
-      updateMsg(aiId, { loading: false, content: "网络不太稳定，请稍后再试" });
+    } catch (e) {
+      updateMsg(aiId, {
+        loading: false,
+        content: (e && e.message) || "网络不太稳定，请稍后再试",
+      });
     }
     state.busy = false;
     updateChrome();
@@ -864,15 +901,7 @@
     }
     const dlBtn = e.target.closest("[data-download-img]");
     if (dlBtn) {
-      const src = dlBtn.getAttribute("data-download-img") || "";
-      const join = src.includes("?") ? "&" : "?";
-      const a = document.createElement("a");
-      a.href = `${src}${join}download=1`;
-      a.download = "daidai-ai.jpg";
-      a.rel = "noopener";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      downloadImageFile(dlBtn.getAttribute("data-download-img") || "");
       return;
     }
     const img = e.target.closest("img.bubble-img[data-img]");

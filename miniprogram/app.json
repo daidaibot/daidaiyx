@@ -11,6 +11,15 @@
     "backgroundColor": "#e8f5ec",
     "resizable": true
   },
+  "permission": {
+    "scope.writePhotosAlbum": {
+      "desc": "用于将呆呆 AI 生成/改图结果保存到你的相册"
+    }
+  },
+  "requiredPrivateInfos": [
+    "chooseMedia",
+    "chooseImage"
+  ],
   "style": "v2",
   "sitemapLocation": "sitemap.json"
 }

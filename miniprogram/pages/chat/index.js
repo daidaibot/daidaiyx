@@ -867,10 +867,11 @@ Page({
     this.setData({ imageSize: e.currentTarget.dataset.value });
   },
 
-  /** 相对路径补全为云托管绝对地址，预览/下载才能用 */
+  /** 相对路径补全为云托管绝对地址；本地临时文件原样返回 */
   absoluteImageUrl(src) {
     const s = String(src || '').trim();
     if (!s) return '';
+    if (this.isLocalImagePath(s)) return s;
     if (/^https?:\/\//i.test(s)) return s;
     const app = getApp();
     const base = String((app.globalData && app.globalData.apiBase) || '').replace(/\/$/, '');
@@ -878,14 +879,34 @@ Page({
     return `${base}${s.startsWith('/') ? s : `/${s}`}`;
   },
 
+  isLocalImagePath(src) {
+    const s = String(src || '');
+    if (!s) return false;
+    if (/^wxfile:\/\//i.test(s)) return true;
+    if (/^http:\/\/(tmp|usr)\//i.test(s)) return true;
+    if (s.startsWith('/')) return false;
+    if (/^https?:\/\//i.test(s)) return false;
+    return true;
+  },
+
   previewImage(e) {
-    const src = this.absoluteImageUrl(e.currentTarget.dataset.src);
+    const raw = e.currentTarget.dataset.src;
+    const src = this.absoluteImageUrl(raw);
     if (!src) {
       wx.showToast({ title: '图片地址无效', icon: 'none' });
       return;
     }
+    // 气泡里所有云图一起左右滑预览
+    const urls = (this.data.messages || [])
+      .map((m) => this.absoluteImageUrl(m && m.image))
+      .filter((u) => u && !this.isLocalImagePath(u));
+    const all = this.isLocalImagePath(src)
+      ? [src]
+      : urls.length
+        ? urls
+        : [src];
     wx.previewImage({
-      urls: [src],
+      urls: all,
       current: src,
       fail: (err) => {
         wx.showModal({
@@ -900,7 +921,8 @@ Page({
   },
 
   downloadImage(e) {
-    const src = this.absoluteImageUrl(e.currentTarget.dataset.src);
+    const raw = String(e.currentTarget.dataset.src || '');
+    const src = this.absoluteImageUrl(raw);
     if (!src) {
       wx.showToast({ title: '图片地址无效', icon: 'none' });
       return;
@@ -913,25 +935,30 @@ Page({
     const saveTemp = (filePath) => {
       wx.saveImageToPhotosAlbum({
         filePath,
-        success: () => finish(true),
+        success: () => finish(true, '已保存到相册'),
         fail: (err) => {
           const msg = String((err && err.errMsg) || '');
-          if (/auth deny|authorize|privacy/i.test(msg)) {
+          if (/auth deny|authorize|privacy|permission/i.test(msg)) {
+            wx.hideLoading();
             wx.showModal({
               title: '需要相册权限',
-              content: '请允许保存到相册，才能下载图片',
+              content: '请允许保存到相册，才能下载带「呆呆 AI 生成」水印的图片',
               confirmText: '去设置',
               success: (r) => {
                 if (r.confirm) wx.openSetting({});
               },
             });
-            wx.hideLoading();
             return;
           }
           finish(false, '保存失败');
         },
       });
     };
+    // 改图时用户上传的原图是本地临时路径，直接存相册
+    if (this.isLocalImagePath(src)) {
+      saveTemp(src);
+      return;
+    }
     wx.downloadFile({
       url: src,
       success: (res) => {
@@ -982,36 +1009,48 @@ Page({
           const file = (res.tempFiles && res.tempFiles[0]) || {};
           const path = file.tempFilePath;
           if (!path) return;
-          if (file.size && file.size > 8 * 1024 * 1024) {
-            wx.showToast({ title: '图片请小于 8MB', icon: 'none' });
+          if (file.size && file.size > 12 * 1024 * 1024) {
+            wx.showToast({ title: '图片请小于 12MB', icon: 'none' });
             return;
           }
-          const fs = wx.getFileSystemManager();
-          fs.readFile({
-            filePath: path,
-            encoding: 'base64',
-            success: (r) => {
-              const lower = path.toLowerCase();
-              const mime = lower.endsWith('.png')
-                ? 'image/png'
-                : lower.endsWith('.webp')
-                  ? 'image/webp'
-                  : 'image/jpeg';
-              this.setData(
-                {
-                  activeSkill: 'edit',
-                  skillLabel: '改图',
-                  placeholder: '说说怎么改这张图…',
-                  editImagePath: path,
-                  editImageB64: r.data,
-                  editMime: mime,
-                  showSheet: false,
-                },
-                () => this.setData({ canSend: this.computeCanSend(this.data.input) })
-              );
-            },
-            fail: () => wx.showToast({ title: '读取图片失败', icon: 'none' }),
-          });
+          const applyPath = (finalPath) => {
+            const fs = wx.getFileSystemManager();
+            fs.readFile({
+              filePath: finalPath,
+              encoding: 'base64',
+              success: (r) => {
+                if (!r.data || r.data.length > 12 * 1024 * 1024) {
+                  wx.showToast({ title: '图片过大，请换一张', icon: 'none' });
+                  return;
+                }
+                this.setData(
+                  {
+                    activeSkill: 'edit',
+                    skillLabel: '改图',
+                    placeholder: '说说怎么改这张图…',
+                    editImagePath: finalPath,
+                    editImageB64: r.data,
+                    editMime: 'image/jpeg',
+                    showSheet: false,
+                  },
+                  () => this.setData({ canSend: this.computeCanSend(this.data.input) })
+                );
+                wx.showToast({ title: '已选图，写明怎么改', icon: 'none' });
+              },
+              fail: () => wx.showToast({ title: '读取图片失败', icon: 'none' }),
+            });
+          };
+          // 再压一档，避免 request 体过大
+          if (typeof wx.compressImage === 'function') {
+            wx.compressImage({
+              src: path,
+              quality: 72,
+              success: (c) => applyPath(c.tempFilePath || path),
+              fail: () => applyPath(path),
+            });
+          } else {
+            applyPath(path);
+          }
         },
       });
     });
@@ -1333,7 +1372,7 @@ Page({
     wx.request({
       url: `${apiBase.replace(/\/$/, '')}/api/image/edit`,
       method: 'POST',
-      timeout: 180000,
+      timeout: 60000,
       data: {
         prompt,
         image_b64,
@@ -1348,36 +1387,45 @@ Page({
             content: '',
             image: this.absoluteImageUrl(data.image),
           });
-        } else {
-          const rawMsg =
-            (data.error && data.error.message) ||
-            (typeof data.error === 'string' ? data.error : '') ||
-            data.message ||
-            '';
-          const tip =
-            friendlyError(rawMsg) ||
-            `改图失败（${res.statusCode || '?'}），请到管理后台看错误日志`;
-          reportClientError({
-            source: 'miniprogram-image-edit',
-            message: rawMsg || tip,
-            status: res.statusCode,
-            path: '/api/image/edit',
-            detail: `prompt=${String(prompt || '').slice(0, 60)}`,
-          });
-          this.updateMessage(aiId, {
-            loading: false,
-            content: tip,
-            image: '',
-          });
+          this.setData({ busy: false }, () => this.saveCurrentSession());
+          return;
         }
+        if (data.pending && data.jobId) {
+          this.updateMessage(aiId, {
+            loading: true,
+            content: '呆呆 AI 改图中，请稍候…',
+          });
+          this.pollImageJob(apiBase, data.jobId, aiId, prompt);
+          return;
+        }
+        const rawMsg =
+          (data.error && data.error.message) ||
+          (typeof data.error === 'string' ? data.error : '') ||
+          data.message ||
+          '';
+        const tip =
+          friendlyError(rawMsg) ||
+          `改图失败（${res.statusCode || '?'}），请到管理后台看错误日志`;
+        reportClientError(apiBase, {
+          source: 'mp-image-edit',
+          message: rawMsg || tip,
+          status: res.statusCode,
+          path: '/api/image/edit',
+          detail: `prompt=${String(prompt || '').slice(0, 60)}`,
+        });
+        this.updateMessage(aiId, {
+          loading: false,
+          content: tip,
+          image: '',
+        });
         this.setData({ busy: false }, () => this.saveCurrentSession());
       },
       fail: (err) => {
         const tip =
           friendlyError(err && err.errMsg) ||
           '无法连接服务，请检查域名与 apiBase';
-        reportClientError({
-          source: 'miniprogram-image-edit',
+        reportClientError(apiBase, {
+          source: 'mp-image-edit',
           message: (err && err.errMsg) || tip,
           status: 0,
           path: '/api/image/edit',
