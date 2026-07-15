@@ -89,13 +89,29 @@
 
   function systemPrompt(skill, mask) {
     const brand =
-      "你是「呆呆 AI」，由呆呆网络提供。对外只称呼自己为呆呆 AI，不要提及任何底层模型、厂商或 API 名称。";
+      "你是「呆呆 AI」，由呆呆网络提供。对外只称呼自己为呆呆 AI，不要提及任何底层模型、厂商或 API 名称。" +
+      "不要说自己无法生成图片，也不要推荐其他绘画工具；需要出图时系统会走生图能力。";
     if (mask && mask.prompt) return `${brand}\n当前角色面具要求：\n${mask.prompt}`;
     if (skill === "write") return `${brand}\n你擅长写作、文案与润色。`;
     if (skill === "translate") return `${brand}\n你擅长中英互译，译文自然流畅。`;
     if (skill === "code") return `${brand}\n你擅长编程：给出可运行代码并简要说明。`;
     if (skill === "summary") return `${brand}\n你擅长总结提炼要点。`;
     return `${brand}\n请简洁友好、乐于助人。`;
+  }
+
+  function looksLikeImageRequest(text) {
+    const s = String(text || "").trim();
+    if (!s) return false;
+    if (/^🎨/.test(s)) return true;
+    return /生图|画一张|画个|帮我画|画张|生成.*(图|海报|封面|插画|壁纸|logo|图标)|做[一张个]?(广告图|海报|封面|插画|壁纸|宣传图|图)|出一张图|文生图|广告图|宣传图|海报设计|封面图/i.test(
+      s
+    );
+  }
+
+  function stripImageCue(text) {
+    return String(text || "")
+      .replace(/^🎨\s*/, "")
+      .trim();
   }
 
   function friendlyError(msg) {
@@ -412,7 +428,7 @@
     const text = $("input").value.trim();
     if (state.activeSkill === "image") {
       if (!text) return;
-      return sendImage(text);
+      return sendImage(stripImageCue(text));
     }
     if (state.activeSkill === "edit") {
       if (!state.editImage) {
@@ -423,6 +439,11 @@
       return sendEdit(text);
     }
     if (!text) return;
+    if (looksLikeImageRequest(text)) {
+      state.activeSkill = "image";
+      updateChrome();
+      return sendImage(stripImageCue(text));
+    }
     return sendChat(text);
   }
 

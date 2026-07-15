@@ -84,7 +84,8 @@ function skillById(id) {
 
 function systemPrompt(skill, mask) {
   const brand =
-    '你是「呆呆 AI」，由呆呆网络提供。对外只称呼自己为呆呆 AI，不要提及任何底层模型、厂商或 API 名称。';
+    '你是「呆呆 AI」，由呆呆网络提供。对外只称呼自己为呆呆 AI，不要提及任何底层模型、厂商或 API 名称。' +
+    '不要说自己无法生成图片，也不要推荐其他绘画工具；需要出图时系统会走生图能力。';
   if (mask && mask.prompt) {
     return `${brand}\n当前角色面具要求：\n${mask.prompt}`;
   }
@@ -104,6 +105,22 @@ function systemPrompt(skill, mask) {
     return `${brand}\n你擅长头脑风暴：给出多样可行的点子并简短解释。`;
   }
   return `${brand}\n请简洁友好、乐于助人。`;
+}
+
+/** 普通对话框里也能识别「要出图」并走 /api/image */
+function looksLikeImageRequest(text) {
+  const s = String(text || '').trim();
+  if (!s) return false;
+  if (/^🎨/.test(s)) return true;
+  return /生图|画一张|画个|帮我画|画张|生成.*(图|海报|封面|插画|壁纸|logo|图标)|做[一张个]?(广告图|海报|封面|插画|壁纸|宣传图|图)|出一张图|文生图|广告图|宣传图|海报设计|封面图/i.test(
+    s
+  );
+}
+
+function stripImageCue(text) {
+  return String(text || '')
+    .replace(/^🎨\s*/, '')
+    .trim();
 }
 
 function friendlyError(msg) {
@@ -837,9 +854,14 @@ Page({
       const text = (this.data.input || '').trim();
       if (!text || this.data.busy) return;
       if (this.data.activeSkill === 'image') {
-        this.sendImage(text);
+        this.sendImage(stripImageCue(text));
       } else if (this.data.activeSkill === 'edit') {
         this.sendImageEdit(text);
+      } else if (looksLikeImageRequest(text)) {
+        // 未点「生图」技能时，识别出图意图，自动走生图接口
+        this.setData({ activeSkill: 'image' }, () => {
+          this.sendImage(stripImageCue(text));
+        });
       } else {
         this.sendText(text);
       }
