@@ -284,6 +284,42 @@
     body.innerHTML = html;
   }
 
+  function imageBlock(src) {
+    const u = escapeHtml(src || "");
+    if (!u) return "";
+    return `<div class="bubble-img-wrap">
+      <img class="bubble-img" src="${u}" alt="" data-img="${u}" />
+      <span class="img-mark">呆呆 AI 生成</span>
+      <div class="img-actions">
+        <button type="button" class="img-act" data-preview-img="${u}">查看</button>
+        <button type="button" class="img-act" data-download-img="${u}">下载</button>
+      </div>
+    </div>`;
+  }
+
+  function openImageLightbox(src) {
+    const url = String(src || "").trim();
+    if (!url) return;
+    const box = $("imgLightbox");
+    const img = $("imgLbImg");
+    const open = $("imgLbOpen");
+    const dl = $("imgLbDl");
+    if (!box || !img) return;
+    img.src = url;
+    if (open) open.href = url;
+    if (dl) {
+      const join = url.includes("?") ? "&" : "?";
+      dl.href = `${url}${join}download=1`;
+      dl.setAttribute("download", "daidai-ai.jpg");
+    }
+    box.classList.remove("hidden");
+  }
+
+  function closeImageLightbox() {
+    const box = $("imgLightbox");
+    if (box) box.classList.add("hidden");
+  }
+
   function renderMessages() {
     $("welcome").classList.toggle("hidden", state.messages.length > 0);
     $("msgList").innerHTML = state.messages
@@ -291,14 +327,14 @@
         if (m.role === "user") {
           return `<div class="row mine"><div class="bubble-wrap"><div class="bubble user">${escapeHtml(
             m.content || ""
-          )}${m.image ? `<div class="bubble-img-wrap"><img class="bubble-img" src="${m.image}" alt="" /><span class="img-mark">呆呆 AI 生成</span></div>` : ""}</div></div></div>`;
+          )}${m.image ? imageBlock(m.image) : ""}</div></div></div>`;
         }
         const emoji = (findMask(state.activeMask) || {}).emoji || "呆";
         return `<div class="row ai"><div class="avatar">${emoji.length <= 2 ? emoji : "呆"}</div><div class="bubble-wrap"><div class="bubble ai">${
           m.loading
             ? '<div class="typing"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>'
             : escapeHtml(m.content || "")
-        }${m.image ? `<div class="bubble-img-wrap"><img class="bubble-img" src="${m.image}" alt="" /><span class="img-mark">呆呆 AI 生成</span></div>` : ""}</div></div></div>`;
+        }${m.image ? imageBlock(m.image) : ""}</div></div></div>`;
       })
       .join("");
     $("bottom").scrollIntoView({ behavior: "smooth", block: "end" });
@@ -819,6 +855,35 @@
     }
   });
   $("sendBtn").onclick = send;
+
+  $("msgList").addEventListener("click", (e) => {
+    const previewBtn = e.target.closest("[data-preview-img]");
+    if (previewBtn) {
+      openImageLightbox(previewBtn.getAttribute("data-preview-img"));
+      return;
+    }
+    const dlBtn = e.target.closest("[data-download-img]");
+    if (dlBtn) {
+      const src = dlBtn.getAttribute("data-download-img") || "";
+      const join = src.includes("?") ? "&" : "?";
+      const a = document.createElement("a");
+      a.href = `${src}${join}download=1`;
+      a.download = "daidai-ai.jpg";
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      return;
+    }
+    const img = e.target.closest("img.bubble-img[data-img]");
+    if (img) openImageLightbox(img.getAttribute("data-img"));
+  });
+  if ($("imgLbClose")) $("imgLbClose").onclick = closeImageLightbox;
+  if ($("imgLightbox")) {
+    $("imgLightbox").addEventListener("click", (e) => {
+      if (e.target === $("imgLightbox")) closeImageLightbox();
+    });
+  }
 
   $("cmCancel").onclick = closeCreateMask;
   $("cmSave").onclick = () => {

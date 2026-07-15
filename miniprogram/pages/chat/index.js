@@ -867,10 +867,89 @@ Page({
     this.setData({ imageSize: e.currentTarget.dataset.value });
   },
 
+  /** 相对路径补全为云托管绝对地址，预览/下载才能用 */
+  absoluteImageUrl(src) {
+    const s = String(src || '').trim();
+    if (!s) return '';
+    if (/^https?:\/\//i.test(s)) return s;
+    const app = getApp();
+    const base = String((app.globalData && app.globalData.apiBase) || '').replace(/\/$/, '');
+    if (!base) return s;
+    return `${base}${s.startsWith('/') ? s : `/${s}`}`;
+  },
+
   previewImage(e) {
-    const src = e.currentTarget.dataset.src;
-    if (!src) return;
-    wx.previewImage({ urls: [src], current: src });
+    const src = this.absoluteImageUrl(e.currentTarget.dataset.src);
+    if (!src) {
+      wx.showToast({ title: '图片地址无效', icon: 'none' });
+      return;
+    }
+    wx.previewImage({
+      urls: [src],
+      current: src,
+      fail: (err) => {
+        wx.showModal({
+          title: '无法预览',
+          content:
+            (err && err.errMsg) ||
+            '请在微信公众平台把云托管域名加入「downloadFile 合法域名」，与 request 合法域名相同。',
+          showCancel: false,
+        });
+      },
+    });
+  },
+
+  downloadImage(e) {
+    const src = this.absoluteImageUrl(e.currentTarget.dataset.src);
+    if (!src) {
+      wx.showToast({ title: '图片地址无效', icon: 'none' });
+      return;
+    }
+    wx.showLoading({ title: '保存中', mask: true });
+    const finish = (ok, tip) => {
+      wx.hideLoading();
+      wx.showToast({ title: tip || (ok ? '已保存到相册' : '保存失败'), icon: ok ? 'success' : 'none' });
+    };
+    const saveTemp = (filePath) => {
+      wx.saveImageToPhotosAlbum({
+        filePath,
+        success: () => finish(true),
+        fail: (err) => {
+          const msg = String((err && err.errMsg) || '');
+          if (/auth deny|authorize|privacy/i.test(msg)) {
+            wx.showModal({
+              title: '需要相册权限',
+              content: '请允许保存到相册，才能下载图片',
+              confirmText: '去设置',
+              success: (r) => {
+                if (r.confirm) wx.openSetting({});
+              },
+            });
+            wx.hideLoading();
+            return;
+          }
+          finish(false, '保存失败');
+        },
+      });
+    };
+    wx.downloadFile({
+      url: src,
+      success: (res) => {
+        if (res.statusCode === 200 && res.tempFilePath) {
+          saveTemp(res.tempFilePath);
+        } else {
+          finish(false, `下载失败 ${res.statusCode || ''}`);
+        }
+      },
+      fail: (err) => {
+        finish(
+          false,
+          /url not in domain|合法域名/i.test(String((err && err.errMsg) || ''))
+            ? '请配置 downloadFile 合法域名'
+            : '下载失败'
+        );
+      },
+    });
   },
 
   onSend() {
@@ -1095,7 +1174,7 @@ Page({
           this.updateMessage(aiId, {
             loading: false,
             content: '',
-            image: data.image,
+            image: this.absoluteImageUrl(data.image),
           });
           this.setData({ busy: false }, () => this.saveCurrentSession());
           return;
@@ -1171,7 +1250,7 @@ Page({
             this.updateMessage(aiId, {
               loading: false,
               content: '',
-              image: data.image,
+              image: this.absoluteImageUrl(data.image),
             });
             this.setData({ busy: false }, () => this.saveCurrentSession());
             return;

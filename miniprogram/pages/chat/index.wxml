@@ -83,10 +83,15 @@
                   class="bubble-img"
                   src="{{item.image}}"
                   mode="widthFix"
+                  show-menu-by-longpress="{{true}}"
                   bindtap="previewImage"
                   data-src="{{item.image}}"
                 />
                 <text class="img-mark">呆呆 AI 生成</text>
+                <view class="img-actions">
+                  <view class="img-act" catchtap="previewImage" data-src="{{item.image}}">查看</view>
+                  <view class="img-act" catchtap="downloadImage" data-src="{{item.image}}">下载</view>
+                </view>
               </view>
               <view wx:if="{{item.loading}}" class="typing">
                 <view class="dot"></view>

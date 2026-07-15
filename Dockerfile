@@ -2,7 +2,8 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-RUN apk add --no-cache libc6-compat
+# libc6-compat: sharp; font-noto-cjk: 水印「呆呆 AI 生成」中文
+RUN apk add --no-cache libc6-compat fontconfig font-noto-cjk
 
 COPY package.json ./
 RUN npm install --omit=dev

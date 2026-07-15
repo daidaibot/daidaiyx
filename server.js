@@ -1415,7 +1415,15 @@ app.get("/api/image/file/:id", (req, res) => {
   if (!file) {
     return res.status(404).json({ error: { message: "图片不存在或已过期" } });
   }
+  const safe = String(req.params.id || "").replace(/[^a-zA-Z0-9_-]/g, "") || "daidai";
   res.setHeader("Cache-Control", "public, max-age=86400");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  if (req.query.download === "1" || req.query.download === "true") {
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="daidai-ai-${safe}.jpg"; filename*=UTF-8''daidai-ai-${safe}.jpg`
+    );
+  }
   res.type("image/jpeg");
   fs.createReadStream(file).pipe(res);
 });
