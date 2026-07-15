@@ -38,9 +38,12 @@
 
   IP:端口:用户名:密码
 
-方式 A：无需粘贴——仓库已内置 config/proxies.builtin.txt，部署后自动加载
-方式 B：管理后台 → 运维配置 → 出站代理池 → 覆盖保存
-方式 C：持久盘写入 /app/data/proxies.txt（优先于内置）
+方式 A：无需粘贴——仓库已内置代理账号，部署后默认走 Webshare backbone（p.webshare.io:80）
+方式 B：管理后台覆盖保存直连列表（仍会自动转成 backbone，除非设 DAIDAI_PROXY_MODE=direct）
+方式 C：持久盘 /app/data/proxies.txt
+
+可选环境变量：
+  DAIDAI_PROXY_MODE=backbone   # 默认；both=网关+直连；direct=只用高端口直连
 
 后台同页可查看「服务器出口 IP」，仅当 Webshare 要求 IP 白名单时再填。
 用「用户名+密码」连代理时，一般不用加白名单。
