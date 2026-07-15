@@ -25,12 +25,13 @@
 | `DAIDAI_IMAGE_PROXY_ASYNC` | 填 `1`：走 Cloudflare 中转异步（一般不如代理池省事） |
 | `DAIDAI_HTTPS_PROXY` | 国外代理池地址，如 `http://user:pass@主机:端口`（生图出站走代理） |
 
-**推荐用代理池直连官方生图时云托管这样配：**
+**推荐用 Webshare 代理池时：**
 
-```
-DAIDAI_HTTPS_PROXY=http://账号:密码@代理主机:端口
-DAIDAI_IMAGE_BASE_URL=https://api.openai.com
-DAIDAI_IMAGE_KEY=sk-你的密钥
-```
+1. 云托管环境变量：
+   - `DAIDAI_IMAGE_BASE_URL=https://api.openai.com`
+   - `DAIDAI_IMAGE_KEY=sk-...`
+   - 不要开 `DAIDAI_IMAGE_PROXY_ASYNC`
+2. 部署后打开管理后台 → 运维配置 → **出站代理池**，把 Webshare txt（`IP:端口:用户:密码`）整份粘贴保存  
+   或把文件放到持久盘 `/app/data/proxies.txt`
 
-不要再开 `DAIDAI_IMAGE_PROXY_ASYNC=1`。代理需支持 HTTPS CONNECT，且超时够长（建议 ≥180 秒）。
+失败会自动换下一个代理（默认最多试 3 个，可用 `DAIDAI_PROXY_TRIES` 调整）。

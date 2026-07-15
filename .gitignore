@@ -8,6 +8,10 @@ npm-debug.log
 web-ui/.env
 data/admin-secrets.json
 data/admin-settings.json
+data/proxies.txt
+data/error-logs.json
+data/image-jobs.json
+data/gen-images/
 _vendor_agent_ui/
 _candidates/
 chatgptmp_preview/

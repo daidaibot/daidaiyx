@@ -4,7 +4,7 @@ const express = require("express");
 const ops = require("./lib/ops");
 const imageOut = require("./lib/imageOut");
 const imageJobs = require("./lib/imageJobs");
-const { outboundFetch, hasOutboundProxy, maskProxy } = require("./lib/outbound");
+const { outboundFetch, hasOutboundProxy, maskProxy, reloadProxies, proxyCount } = require("./lib/outbound");
 
 const app = express();
 const PORT = Number(process.env.PORT) || 80;
@@ -379,6 +379,36 @@ app.put("/api/admin/secrets", adminAuth, (req, res) => {
   res.json({ ok: true, ...ops.secretsStatus() });
 });
 
+app.get("/api/admin/proxies", adminAuth, (_req, res) => {
+  const file = path.join(ops.DATA_DIR, "proxies.txt");
+  let text = "";
+  try {
+    if (fs.existsSync(file)) text = fs.readFileSync(file, "utf8");
+  } catch (e) {
+    console.error("read proxies failed:", e.message);
+  }
+  res.json({
+    ok: true,
+    count: proxyCount(),
+    text,
+    file: "data/proxies.txt",
+    hint: "每行 host:port:user:pass（Webshare）或 http://user:pass@host:port",
+  });
+});
+
+app.put("/api/admin/proxies", adminAuth, (req, res) => {
+  const text = String((req.body && req.body.text) || "");
+  const file = path.join(ops.DATA_DIR, "proxies.txt");
+  try {
+    if (!fs.existsSync(ops.DATA_DIR)) fs.mkdirSync(ops.DATA_DIR, { recursive: true });
+    fs.writeFileSync(file, text, "utf8");
+  } catch (e) {
+    return res.status(500).json({ error: { message: e.message || "写入失败" } });
+  }
+  const count = reloadProxies();
+  res.json({ ok: true, count, file: "data/proxies.txt" });
+});
+
 app.get("/api/admin/config", adminAuth, (_req, res) => {
   const sec = ops.secretsStatus();
   const settings = ops.loadSettings();
@@ -402,6 +432,7 @@ app.get("/api/admin/config", adminAuth, (_req, res) => {
       对话上游: CHAT_BASE_URL,
       生图上游: IMAGE_BASE_URL,
       生图模型: IMAGE_MODEL,
+      出站代理池: hasOutboundProxy() ? maskProxy() : "未配置",
       开发假登录: ALLOW_DEV_LOGIN ? "开启" : "关闭",
     },
     masked: {

@@ -170,6 +170,18 @@
               </div>
             </div>
 
+            <div class="box form-box">
+              <div class="box-h">出站代理池（Webshare 等）</div>
+              <p class="hint">每行一条：<code>IP:端口:用户名:密码</code>。保存到服务器 data/proxies.txt，生图走国外出口。失败会自动换下一条。</p>
+              <label class="field">代理列表
+                <textarea id="proxyList" rows="8" placeholder="45.x.x.x:6896:user:pass"></textarea>
+              </label>
+              <p class="status-line" id="proxyHint">未加载</p>
+              <div class="toolbar wrap">
+                <button type="button" class="btn" id="saveProxies">保存代理池</button>
+              </div>
+            </div>
+
             <div class="box">
               <div class="box-h">能力状态</div>
               <table class="table">

@@ -467,6 +467,34 @@ async function loadSecretsForm() {
   document.getElementById("secImageHint").textContent = sec.imageConfigured
     ? `已配置 · ${sec.imageMasked}${sec.imageFromAdmin ? " · 来自后台" : " · 来自环境变量"}`
     : "未配置";
+  await loadProxiesForm();
+}
+
+async function loadProxiesForm() {
+  try {
+    const data = await api("/api/admin/proxies");
+    document.getElementById("proxyList").value = data.text || "";
+    document.getElementById("proxyHint").textContent = data.count
+      ? `已加载 ${data.count} 条 · ${data.file || "data/proxies.txt"}`
+      : "尚未配置代理（生图将直连上游，国内可能不通）";
+  } catch (e) {
+    document.getElementById("proxyHint").textContent = e.message || "加载失败";
+  }
+}
+
+async function saveProxies() {
+  try {
+    const text = document.getElementById("proxyList").value || "";
+    const data = await api("/api/admin/proxies", {
+      method: "PUT",
+      body: JSON.stringify({ text }),
+    });
+    toast(`代理池已保存（${data.count || 0} 条）`, "ok");
+    await loadProxiesForm();
+    await loadOverview();
+  } catch (e) {
+    toast(e.message || "保存失败", "bad");
+  }
 }
 
 async function saveSettings(patch, silent) {
