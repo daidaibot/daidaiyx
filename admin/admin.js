@@ -153,10 +153,13 @@ function buildHealth(data) {
         : "未读取到上游地址",
     },
     {
-      ok: Boolean(s.publicApiBase),
-      level: s.publicApiBase ? "ok" : "warn",
+      ok: Boolean(data.publicApiBase || s.publicApiBase),
+      level: data.publicApiBase || s.publicApiBase ? "ok" : "warn",
       title: "对接域名",
-      tip: s.publicApiBase || "建议填写云托管公网域名，方便小程序对齐",
+      tip:
+        data.publicApiBase ||
+        s.publicApiBase ||
+        "云托管环境变量填 DAIDAI_API_BASE",
     },
     {
       ok: !s.maintenance,
@@ -301,7 +304,9 @@ async function loadOverview() {
 
   document.getElementById("sideMeta").innerHTML = [
     `运行 ${fmtUptime(data.uptimeSec)}`,
-    set.publicApiBase ? esc(set.publicApiBase) : "域名未填",
+    set.publicApiBase || data.publicApiBase
+      ? esc(set.publicApiBase || data.publicApiBase)
+      : "域名未填",
   ].join("<br>");
 
   const rows = [
