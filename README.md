@@ -22,6 +22,9 @@
 | `DAIDAI_IMAGE_KEY` | 呆呆 Image（生图）密钥 |
 | `DAIDAI_IMAGE_BASE_URL` | 生图中转地址，如 `https://openai.dai520.cn`（不要加 `/v1`） |
 | `DAIDAI_API_BASE` | 小程序对接域名（云托管公网地址，不要末尾 `/`，不要 `/admin`） |
+| `DAIDAI_IMAGE_PROXY_ASYNC` | 填 `1`：中转走异步生图（`X-Proxy-Mode: async` + 轮询），解决云托管出站约 60s 超时 |
 
 可选：`DAIDAI_AI_BASE_URL`、`DAIDAI_AI_MODEL`、`DAIDAI_IMAGE_MODEL`、`WEB_PASSWORD`。  
 旧名 `DEEPSEEK_*` / `OPENAI_*` 仍兼容，但新部署请用上面的 `DAIDAI_*`。
+
+生图仍 504 时：云托管加上 `DAIDAI_IMAGE_PROXY_ASYNC=1` 并重新部署；中转需已开通 Cloudflare Queue（通常要 Workers Paid）。

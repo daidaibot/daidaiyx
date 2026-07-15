@@ -823,9 +823,85 @@ app.post("/api/chat", gateProductApi("chat"), async (req, res) => {
   }
 });
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchUpstreamImageGeneration(imageKey, bodyObj) {
+  const useProxyAsync = process.env.DAIDAI_IMAGE_PROXY_ASYNC === "1";
+  const headers = {
+    Authorization: `Bearer ${imageKey}`,
+    "Content-Type": "application/json",
+  };
+  if (useProxyAsync) headers["X-Proxy-Mode"] = "async";
+
+  let upstream = await fetch(`${IMAGE_BASE_URL}/v1/images/generations`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(bodyObj),
+  });
+
+  // 中转异步未配置时回退同步，避免整条链路直接挂死
+  if (useProxyAsync && upstream.status === 503) {
+    const peek = await upstream.text();
+    if (/async_not_configured|异步模式未启用/i.test(peek)) {
+      console.warn("[image] proxy async not configured, fallback to sync");
+      const syncHeaders = {
+        Authorization: `Bearer ${imageKey}`,
+        "Content-Type": "application/json",
+      };
+      upstream = await fetch(`${IMAGE_BASE_URL}/v1/images/generations`, {
+        method: "POST",
+        headers: syncHeaders,
+        body: JSON.stringify(bodyObj),
+      });
+      return { upstream, raw: await upstream.text(), mode: "sync-fallback" };
+    }
+    return { upstream, raw: peek, mode: "async" };
+  }
+
+  if (useProxyAsync && upstream.status === 202) {
+    const meta = await upstream.json().catch(() => ({}));
+    const pollPath =
+      meta.poll_url || (meta.id ? `/v1/proxy/tasks/${meta.id}` : "");
+    if (!pollPath) {
+      const err = new Error("中转异步已受理但未返回 poll_url");
+      err.status = 502;
+      throw err;
+    }
+    console.log(`[image] proxy async accepted task=${meta.id || "?"} poll=${pollPath}`);
+    for (let i = 0; i < 120; i++) {
+      await sleep(2000);
+      upstream = await fetch(`${IMAGE_BASE_URL}${pollPath}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${imageKey}` },
+      });
+      if (upstream.status !== 202) {
+        return {
+          upstream,
+          raw: await upstream.text(),
+          mode: "async",
+          taskId: meta.id || "",
+        };
+      }
+    }
+    const err = new Error(
+      "中转异步生图轮询超时（约 4 分钟）。请检查 Cloudflare Queue/Paid 或上游是否卡住"
+    );
+    err.status = 504;
+    throw err;
+  }
+
+  return {
+    upstream,
+    raw: await upstream.text(),
+    mode: useProxyAsync ? "async-sync-response" : "sync",
+  };
+}
+
 async function generateImageOnce({ imageKey, prompt, size, origin }) {
   const model = IMAGE_MODEL;
-  const payload = {
+  const basePayload = {
     model,
     prompt,
     size,
@@ -834,26 +910,23 @@ async function generateImageOnce({ imageKey, prompt, size, origin }) {
     output_format: "jpeg",
   };
   const started = Date.now();
-  let upstream = await fetch(`${IMAGE_BASE_URL}/v1/images/generations`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${imageKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-  let raw = await upstream.text();
-  if (!upstream.ok && /unknown|unsupported|invalid|quality|output_format/i.test(raw)) {
-    upstream = await fetch(`${IMAGE_BASE_URL}/v1/images/generations`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${imageKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ model, prompt, size, n: 1 }),
-    });
-    raw = await upstream.text();
+  let { upstream, raw, mode } = await fetchUpstreamImageGeneration(
+    imageKey,
+    basePayload
+  );
+
+  if (
+    !upstream.ok &&
+    /unknown|unsupported|invalid|quality|output_format/i.test(raw || "")
+  ) {
+    ({ upstream, raw, mode } = await fetchUpstreamImageGeneration(imageKey, {
+      model,
+      prompt,
+      size,
+      n: 1,
+    }));
   }
+
   let data = null;
   try {
     data = JSON.parse(raw);
@@ -885,6 +958,7 @@ async function generateImageOnce({ imageKey, prompt, size, origin }) {
     ms: Date.now() - started,
     revised_prompt: item.revised_prompt || "",
     model,
+    proxyMode: mode,
   };
 }
 
