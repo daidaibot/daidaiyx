@@ -3,6 +3,7 @@ const fs = require("fs");
 const express = require("express");
 const ops = require("./lib/ops");
 const imageOut = require("./lib/imageOut");
+const imageJobs = require("./lib/imageJobs");
 
 const app = express();
 const PORT = Number(process.env.PORT) || 80;
@@ -180,6 +181,7 @@ function maintenanceApiGate(req, res, next) {
     return next();
   }
   if (req.path.startsWith("/api/image/file/")) return next();
+  if (req.path.startsWith("/api/image/job/")) return next();
   const settings = ops.loadSettings();
   if (!settings.maintenance) return next();
   return res.status(503).json({
@@ -821,6 +823,71 @@ app.post("/api/chat", gateProductApi("chat"), async (req, res) => {
   }
 });
 
+async function generateImageOnce({ imageKey, prompt, size, origin }) {
+  const model = IMAGE_MODEL;
+  const payload = {
+    model,
+    prompt,
+    size,
+    n: 1,
+    quality: "medium",
+    output_format: "jpeg",
+  };
+  const started = Date.now();
+  let upstream = await fetch(`${IMAGE_BASE_URL}/v1/images/generations`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${imageKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  let raw = await upstream.text();
+  if (!upstream.ok && /unknown|unsupported|invalid|quality|output_format/i.test(raw)) {
+    upstream = await fetch(`${IMAGE_BASE_URL}/v1/images/generations`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${imageKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ model, prompt, size, n: 1 }),
+    });
+    raw = await upstream.text();
+  }
+  let data = null;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    data = null;
+  }
+  if (!upstream.ok) {
+    const message =
+      data?.error?.message ||
+      (raw ? raw.slice(0, 300) : `上游生图错误 ${upstream.status}`);
+    const err = new Error(message);
+    err.status = upstream.status;
+    throw err;
+  }
+  const item = data?.data?.[0] || {};
+  if (!item.b64_json && !item.url) {
+    const err = new Error("上游未返回图片数据");
+    err.status = 502;
+    throw err;
+  }
+  const saved = await imageOut.saveGeneratedImage(item);
+  const imageUrl = origin
+    ? `${origin}/api/image/file/${saved.id}`
+    : `/api/image/file/${saved.id}`;
+  return {
+    image: imageUrl,
+    imageId: saved.id,
+    bytes: saved.bytes,
+    ms: Date.now() - started,
+    revised_prompt: item.revised_prompt || "",
+    model,
+  };
+}
+
 app.post("/api/image", gateProductApi("image"), async (req, res) => {
   const imageKey = ops.getImageKey();
   if (!imageKey) {
@@ -861,134 +928,111 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
   }
 
   const size = body.size || "1024x1024";
-  const model = IMAGE_MODEL;
-  const payload = {
-    model,
-    prompt,
-    size,
-    n: 1,
-    // 尽量让上游返回更小体积，避免小程序解析超大 JSON 失败（OpenAI 已扣费但前端当失败）
-    quality: "medium",
-    output_format: "jpeg",
-  };
+  const origin = imageOut.publicOrigin(req, ops.loadSettings());
+  // 默认异步：立刻返回 jobId，避免云托管/网关 60s 左右 504（上游其实还在画并扣费）
+  const wantSync = body.sync === true || body.sync === 1 || body.sync === "1";
 
-  const started = Date.now();
-  try {
-    let upstream = await fetch(`${IMAGE_BASE_URL}/v1/images/generations`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${imageKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
+  if (!wantSync) {
+    const job = imageJobs.createJob({ prompt: prompt.slice(0, 200), size });
+    res.json({
+      ok: true,
+      pending: true,
+      jobId: job.id,
+      product: "呆呆 Image",
+      message: "生图任务已提交，请轮询结果",
     });
-    let raw = await upstream.text();
-    // 若中转/模型不接受 quality、output_format，回退最小参数
-    if (!upstream.ok && /unknown|unsupported|invalid|quality|output_format/i.test(raw)) {
-      upstream = await fetch(`${IMAGE_BASE_URL}/v1/images/generations`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${imageKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ model, prompt, size, n: 1 }),
-      });
-      raw = await upstream.text();
-    }
-    let data = null;
-    try {
-      data = JSON.parse(raw);
-    } catch {
-      data = null;
-    }
-
-    if (!upstream.ok) {
-      const message =
-        data?.error?.message ||
-        (raw ? raw.slice(0, 300) : `上游生图错误 ${upstream.status}`);
-      stats.imageFail += 1;
-      logApiError(
-        {
+    setImmediate(async () => {
+      try {
+        const result = await generateImageOnce({ imageKey, prompt, size, origin });
+        stats.image += 1;
+        ops.bumpHourly("image");
+        ops.pushLatency("image", result.ms);
+        imageJobs.updateJob(job.id, {
+          status: "done",
+          image: result.image,
+          imageId: result.imageId,
+          ms: result.ms,
+          error: "",
+        });
+        console.log(`[image-ok] job=${job.id} id=${result.imageId} bytes=${result.bytes} ms=${result.ms}`);
+      } catch (err) {
+        stats.imageFail += 1;
+        const message = err instanceof Error ? err.message : String(err);
+        const status = err && err.status ? err.status : 502;
+        logApiError({
           source: "image",
           message,
-          status: upstream.status,
+          status,
           path: "/api/image",
-          detail: `model=${model} base=${IMAGE_BASE_URL} size=${size} prompt=${prompt.slice(0, 80)}`,
+          detail: `job=${job.id} model=${IMAGE_MODEL} base=${IMAGE_BASE_URL} prompt=${prompt.slice(0, 80)}`,
           ip: ops.clientIp(req),
-        },
-        res
-      );
-      return res.status(upstream.status).json({
-        error: errorPayload(
-          sanitizePublicError(message, `生图失败（${upstream.status}）`),
-          res,
-          { base: IMAGE_BASE_URL, model }
-        ),
-      });
-    }
+        });
+        imageJobs.updateJob(job.id, {
+          status: "error",
+          error: sanitizePublicError(
+            message,
+            status === 504
+              ? "生图超时：中转等待过久。若账单已扣费，多为网关超时，请升级中转时长或稍后重试"
+              : "生图失败"
+          ),
+          ms: Date.now() - job.createdAt,
+        });
+        console.error(`[image-fail] job=${job.id}`, message);
+      }
+    });
+    return;
+  }
 
-    const item = data?.data?.[0] || {};
-    if (!item.b64_json && !item.url) {
-      stats.imageFail += 1;
-      logApiError(
-        {
-          source: "image",
-          message: "上游未返回图片数据",
-          status: 502,
-          path: "/api/image",
-          detail: `model=${model} base=${IMAGE_BASE_URL} raw=${String(raw).slice(0, 200)}`,
-          ip: ops.clientIp(req),
-        },
-        res
-      );
-      return res.status(502).json({
-        error: errorPayload("上游未返回图片数据", res, { base: IMAGE_BASE_URL, model }),
-      });
-    }
-
-    const saved = await imageOut.saveGeneratedImage(item);
-    const origin = imageOut.publicOrigin(req, ops.loadSettings());
-    const imageUrl = origin
-      ? `${origin}/api/image/file/${saved.id}`
-      : `/api/image/file/${saved.id}`;
-
+  try {
+    const result = await generateImageOnce({ imageKey, prompt, size, origin });
     stats.image += 1;
     ops.bumpHourly("image");
-    ops.pushLatency("image", Date.now() - started);
-    console.log(
-      `[image-ok] id=${saved.id} bytes=${saved.bytes} sharp=${imageOut.hasSharp()} ms=${Date.now() - started}`
-    );
+    ops.pushLatency("image", result.ms);
     res.json({
       ok: true,
       product: "呆呆 Image",
       size,
-      image: imageUrl,
-      imageId: saved.id,
-      revised_prompt: item.revised_prompt || "",
+      image: result.image,
+      imageId: result.imageId,
+      revised_prompt: result.revised_prompt || "",
     });
   } catch (err) {
     console.error("image proxy error:", err);
     stats.imageFail += 1;
     const message = err instanceof Error ? err.message : String(err);
+    const status = err && err.status ? err.status : 502;
     logApiError(
       {
         source: "image",
         message,
-        status: 502,
+        status,
         path: "/api/image",
-        detail: `model=${IMAGE_MODEL} base=${IMAGE_BASE_URL} · 常见原因：中转不可达或密钥无效`,
+        detail: `model=${IMAGE_MODEL} base=${IMAGE_BASE_URL}`,
         ip: ops.clientIp(req),
       },
       res
     );
-    res.status(502).json({
+    res.status(status >= 400 && status < 600 ? status : 502).json({
       error: errorPayload(
-        sanitizePublicError(message, "生图代理失败，请检查中转与密钥"),
+        sanitizePublicError(
+          message,
+          status === 504
+            ? "生图超时：中转或网关等待过久，上游可能已扣费"
+            : "生图代理失败，请检查中转与密钥"
+        ),
         res,
         { base: IMAGE_BASE_URL, model: IMAGE_MODEL }
       ),
     });
   }
+});
+
+app.get("/api/image/job/:id", (req, res) => {
+  const job = imageJobs.getJob(req.params.id);
+  if (!job) {
+    return res.status(404).json({ ok: false, error: { message: "任务不存在或已过期" } });
+  }
+  res.json({ ok: true, job: imageJobs.publicJob(job) });
 });
 
 /**

@@ -522,6 +522,25 @@
     }, 16);
   }
 
+  async function pollImageJob(jobId, onTick) {
+    const started = Date.now();
+    const maxMs = 180000;
+    while (Date.now() - started < maxMs) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const res = await fetch(`/api/image/job/${encodeURIComponent(jobId)}`);
+      const data = await res.json().catch(() => ({}));
+      const job = data.job || {};
+      if (typeof onTick === "function") onTick(job);
+      if (job.status === "done" && job.image) return job;
+      if (job.status === "error") {
+        const err = new Error(job.error || "生图失败");
+        err.job = job;
+        throw err;
+      }
+    }
+    throw new Error("生图等待超时，请稍后在后台错误日志确认是否已完成");
+  }
+
   async function sendImage(prompt) {
     const userMsg = { id: uid(), role: "user", content: `🎨 ${prompt}` };
     const aiId = uid();
@@ -535,6 +554,12 @@
       const data = await res.json().catch(() => ({}));
       if (data.image) {
         updateMsg(aiId, { loading: false, content: "", image: data.image });
+      } else if (data.pending && data.jobId) {
+        updateMsg(aiId, { loading: true, content: "呆呆 AI 作图中，请稍候…" });
+        const job = await pollImageJob(data.jobId, () => {
+          updateMsg(aiId, { loading: true, content: "呆呆 AI 作图中，请稍候…" });
+        });
+        updateMsg(aiId, { loading: false, content: "", image: job.image });
       } else {
         const rawMsg = data?.error?.message || "";
         const errId = data?.error?.id || "";
@@ -555,11 +580,11 @@
         updateMsg(aiId, { loading: false, content: shown });
       }
     } catch (e) {
-      const tip = `无法连接生图服务\n${(e && e.message) || "网络异常"}`;
+      const tip = e && e.message ? e.message : "无法连接生图服务";
       reportClientError({
         source: "web-image",
-        message: (e && e.message) || tip,
-        status: "network",
+        message: tip,
+        status: (e && e.job && "job-error") || "network",
         path: "/api/image",
         detail: `prompt=${prompt.slice(0, 100)}`,
       });

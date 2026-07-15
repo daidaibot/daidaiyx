@@ -1087,7 +1087,7 @@ Page({
     wx.request({
       url: `${apiBase.replace(/\/$/, '')}/api/image`,
       method: 'POST',
-      timeout: 180000,
+      timeout: 60000,
       data: { prompt, size },
       success: (res) => {
         const data = typeof res.data === 'object' && res.data ? res.data : {};
@@ -1097,21 +1097,30 @@ Page({
             content: '',
             image: data.image,
           });
-        } else {
-          const info = formatImageFail(res, data, prompt);
-          reportClientError(apiBase, {
-            source: 'mp-image',
-            message: info.rawMsg,
-            status: info.status,
-            path: '/api/image',
-            detail: `prompt=${prompt.slice(0, 100)};id=${info.errId}`,
-          });
-          this.updateMessage(aiId, {
-            loading: false,
-            content: info.tip,
-            image: '',
-          });
+          this.setData({ busy: false }, () => this.saveCurrentSession());
+          return;
         }
+        if (data.pending && data.jobId) {
+          this.updateMessage(aiId, {
+            loading: true,
+            content: '呆呆 AI 作图中，请稍候…',
+          });
+          this.pollImageJob(apiBase, data.jobId, aiId, prompt);
+          return;
+        }
+        const info = formatImageFail(res, data, prompt);
+        reportClientError(apiBase, {
+          source: 'mp-image',
+          message: info.rawMsg,
+          status: info.status,
+          path: '/api/image',
+          detail: `prompt=${prompt.slice(0, 100)};id=${info.errId}`,
+        });
+        this.updateMessage(aiId, {
+          loading: false,
+          content: info.tip,
+          image: '',
+        });
         this.setData({ busy: false }, () => this.saveCurrentSession());
       },
       fail: (err) => {
@@ -1137,6 +1146,59 @@ Page({
         this.setData({ busy: false });
       },
     });
+  },
+
+  pollImageJob(apiBase, jobId, aiId, prompt) {
+    const base = apiBase.replace(/\/$/, '');
+    const started = Date.now();
+    const maxMs = 180000;
+    const tick = () => {
+      if (Date.now() - started > maxMs) {
+        this.updateMessage(aiId, {
+          loading: false,
+          content: '生图等待超时。若账单已扣费，请到后台错误日志查看是否已完成。',
+        });
+        this.setData({ busy: false }, () => this.saveCurrentSession());
+        return;
+      }
+      wx.request({
+        url: `${base}/api/image/job/${encodeURIComponent(jobId)}`,
+        method: 'GET',
+        timeout: 20000,
+        success: (res) => {
+          const data = (res.data && res.data.job) || {};
+          if (data.status === 'done' && data.image) {
+            this.updateMessage(aiId, {
+              loading: false,
+              content: '',
+              image: data.image,
+            });
+            this.setData({ busy: false }, () => this.saveCurrentSession());
+            return;
+          }
+          if (data.status === 'error') {
+            const tip = data.error || '生图失败';
+            reportClientError(apiBase, {
+              source: 'mp-image-job',
+              message: tip,
+              status: 'job-error',
+              path: '/api/image/job',
+              detail: `jobId=${jobId};prompt=${String(prompt || '').slice(0, 60)}`,
+            });
+            this.updateMessage(aiId, { loading: false, content: tip });
+            this.setData({ busy: false }, () => this.saveCurrentSession());
+            return;
+          }
+          this.updateMessage(aiId, {
+            loading: true,
+            content: '呆呆 AI 作图中，请稍候…',
+          });
+          setTimeout(tick, 2000);
+        },
+        fail: () => setTimeout(tick, 2500),
+      });
+    };
+    setTimeout(tick, 1500);
   },
 
   sendImageEdit(prompt) {
