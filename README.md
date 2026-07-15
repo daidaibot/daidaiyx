@@ -12,4 +12,9 @@
 - `/chat.html` 豆包风呆呆 AI
 - `/admin/` 管理后台
 
-推荐部署：**微信云托管**。环境变量：`ADMIN_PASSWORD`、`DEEPSEEK_API_KEY`、`OPENAI_API_KEY`、`WECHAT_APPID`、`WECHAT_SECRET`。
+推荐部署：**微信云托管**。环境变量：
+
+- `WECHAT_APPID` / `WECHAT_SECRET` — 小程序登录（必填，否则不能登录）
+- `WECHAT_OPEN_APPID` / `WECHAT_OPEN_SECRET` — 网页跳转微信扫码登录（开放平台网站应用）
+- `WECHAT_OAUTH_REDIRECT` — `https://域名/api/auth/wechat/callback`
+- `ADMIN_PASSWORD`、`DEEPSEEK_API_KEY`、`OPENAI_API_KEY`

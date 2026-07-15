@@ -61,40 +61,26 @@ function clearSession() {
   }
 }
 
-/** wx.login + 后端换身份；无后端时也可本地登录（开发调试） */
+/** wx.login → 后端 code2session；必须走微信 + 已配置的云托管，禁止本地假登录 */
 function loginWithWeChat(profile = {}) {
   return new Promise((resolve, reject) => {
+    let apiBase = '';
+    try {
+      apiBase = (getApp().globalData && getApp().globalData.apiBase) || '';
+    } catch (e) {
+      apiBase = '';
+    }
+
+    if (!apiBase) {
+      reject(new Error('未连接云托管，无法微信登录'));
+      return;
+    }
+
     wx.login({
       success: (loginRes) => {
         const code = loginRes.code;
         if (!code) {
-          reject(new Error('登录失败，请重试'));
-          return;
-        }
-
-        let apiBase = '';
-        try {
-          apiBase = (getApp().globalData && getApp().globalData.apiBase) || '';
-        } catch (e) {
-          apiBase = '';
-        }
-
-        const payload = {
-          code,
-          nickName: profile.nickName || '',
-          avatarUrl: profile.avatarUrl || '',
-        };
-
-        if (!apiBase) {
-          // 无云托管域名时：本地会话（仍算已登录，方便开发）
-          const openid = `local_${String(code).slice(0, 16)}`;
-          const user = saveSession({
-            token: `tk_${openid}`,
-            openid,
-            nickName: payload.nickName || '微信用户',
-            avatarUrl: payload.avatarUrl || '',
-          });
-          resolve(user);
+          reject(new Error('未拿到微信登录凭证，请重试'));
           return;
         }
 
@@ -102,25 +88,34 @@ function loginWithWeChat(profile = {}) {
           url: `${apiBase.replace(/\/$/, '')}/api/auth/login`,
           method: 'POST',
           timeout: 20000,
-          data: payload,
+          data: {
+            code,
+            nickName: profile.nickName || '',
+            avatarUrl: profile.avatarUrl || '',
+          },
           success: (res) => {
             const data = res.data || {};
-            if (!data.ok || !data.openid) {
-              reject(new Error(data.error?.message || '登录失败'));
+            if (!data.ok || !data.openid || data.dev) {
+              reject(
+                new Error(
+                  data.error?.message ||
+                    '微信登录未配置，请在云托管设置 WECHAT_APPID / WECHAT_SECRET'
+                )
+              );
               return;
             }
             const user = saveSession({
               token: data.token || data.openid,
               openid: data.openid,
-              nickName: data.nickName || payload.nickName || '微信用户',
-              avatarUrl: data.avatarUrl || payload.avatarUrl || '',
+              nickName: data.nickName || profile.nickName || '微信用户',
+              avatarUrl: data.avatarUrl || profile.avatarUrl || '',
             });
             resolve(user);
           },
           fail: () => reject(new Error('网络错误，请稍后再试')),
         });
       },
-      fail: () => reject(new Error('微信登录不可用')),
+      fail: () => reject(new Error('请在微信内使用微信登录')),
     });
   });
 }

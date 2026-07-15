@@ -52,8 +52,30 @@
     else localStorage.removeItem(USER_KEY);
   }
 
+  function consumeWechatCallback() {
+    const params = new URLSearchParams(location.search);
+    if (params.get("wx_error")) {
+      alert(params.get("wx_error"));
+      history.replaceState({}, "", location.pathname);
+      return;
+    }
+    if (params.get("wx_ok") !== "1") return;
+    const openid = params.get("openid") || "";
+    const token = params.get("token") || "";
+    const nickName = params.get("nickName") || "微信用户";
+    const avatarUrl = params.get("avatarUrl") || "";
+    if (!openid || !token) {
+      alert("微信登录失败，请重试");
+      history.replaceState({}, "", location.pathname);
+      return;
+    }
+    setUser({ openid, token, nickName, avatarUrl });
+    history.replaceState({}, "", location.pathname);
+  }
+
   function loggedIn() {
-    return Boolean(getUser());
+    const u = getUser();
+    return Boolean(u && u.openid && (u.token || u.openid));
   }
 
   function customMasks() {
@@ -168,12 +190,12 @@
     if (user) {
       du.innerHTML = `<div class="drawer-avatar">${(user.nickName || "呆")[0]}</div><div><div class="drawer-name">${escapeHtml(
         user.nickName || "用户"
-      )}</div><div class="drawer-desc">已登录</div></div>`;
+      )}</div><div class="drawer-desc">微信已登录</div></div>`;
       $("drawerAuth").textContent = "退出登录";
     } else {
       du.innerHTML =
-        '<div class="drawer-avatar">游</div><div><div class="drawer-name">游客</div><div class="drawer-desc">登录后同步体验</div></div>';
-      $("drawerAuth").textContent = "登录";
+        '<div class="drawer-avatar">游</div><div><div class="drawer-name">游客</div><div class="drawer-desc">需微信授权后使用</div></div>';
+      $("drawerAuth").textContent = "微信登录";
     }
     renderHistory();
   }
@@ -582,10 +604,8 @@
   $("guestTip").onclick = openLogin;
   $("loginCancel").onclick = closeLogin;
   $("loginBtn").onclick = () => {
-    const nick = ($("nickInput").value || "").trim() || "网页用户";
-    setUser({ nickName: nick });
-    closeLogin();
-    updateChrome();
+    const ret = encodeURIComponent("/chat.html");
+    location.href = `/api/auth/wechat/start?return=${ret}`;
   };
 
   $("plusBtn").onclick = () => {
@@ -721,6 +741,7 @@
     setMask(id);
   };
 
+  consumeWechatCallback();
   renderSkills();
   renderMaskRow();
   renderSheet();
