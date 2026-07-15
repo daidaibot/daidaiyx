@@ -6,6 +6,8 @@ web-ui/dist/
 npm-debug.log
 .env
 web-ui/.env
+data/admin-secrets.json
+data/admin-settings.json
 _vendor_agent_ui/
 _candidates/
 chatgptmp_preview/

@@ -8,17 +8,14 @@ const PORT = Number(process.env.PORT) || 80;
 const OPENAI_BASE_URL = (
   process.env.OPENAI_BASE_URL || "https://api.deepseek.com"
 ).replace(/\/$/, "");
-const API_KEY = process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY || "";
 const DEFAULT_MODEL = process.env.CHAT_MODEL || "deepseek-chat";
 
-/** 生图走 OpenAI Image（gpt-image-2），与聊天 Key 可分开 */
+/** 生图上游（内部）；对外一律称「呆呆 Image」 */
 const IMAGE_BASE_URL = (
   process.env.OPENAI_IMAGE_BASE_URL ||
   process.env.OPENAI_API_BASE ||
   "https://api.openai.com"
 ).replace(/\/$/, "");
-const IMAGE_API_KEY =
-  process.env.OPENAI_IMAGE_API_KEY || process.env.OPENAI_API_KEY || "";
 const IMAGE_MODEL = process.env.IMAGE_MODEL || "gpt-image-2";
 
 app.use(express.json({ limit: "20mb" }));
@@ -105,6 +102,7 @@ app.post("/api/admin/logout", adminAuth, (req, res) => {
 app.get("/api/admin/overview", adminAuth, (_req, res) => {
   const settings = ops.loadSettings();
   const system = ops.getSystemInfo();
+  const sec = ops.secretsStatus();
   res.json({
     ok: true,
     brand: "呆呆网络",
@@ -121,18 +119,33 @@ app.get("/api/admin/overview", adminAuth, (_req, res) => {
     },
     hourly: ops.getHourlySeries(24),
     system,
-    settings,
-    chatConfigured: Boolean(API_KEY),
-    imageConfigured: Boolean(IMAGE_API_KEY),
+    settings: {
+      maintenance: settings.maintenance,
+      maintenanceMessage: settings.maintenanceMessage,
+      announce: settings.announce,
+      rateLimitPerMin: settings.rateLimitPerMin,
+      blockChat: settings.blockChat,
+      blockImage: settings.blockImage,
+      notes: settings.notes,
+      publicApiBase: settings.publicApiBase || "",
+    },
+    chatConfigured: sec.chatConfigured,
+    imageConfigured: sec.imageConfigured,
     wechatLoginConfigured: Boolean(WECHAT_APPID && WECHAT_SECRET),
     webPasswordConfigured: Boolean(WEB_PASSWORD),
     adminConfigured: Boolean(ADMIN_PASSWORD),
     allowDevLogin: ALLOW_DEV_LOGIN,
     models: {
-      chat: DEFAULT_MODEL,
-      image: IMAGE_MODEL,
-      chatBase: OPENAI_BASE_URL,
-      imageBase: IMAGE_BASE_URL,
+      chat: "呆呆 AI",
+      image: "呆呆 Image",
+      chatReady: sec.chatConfigured,
+      imageReady: sec.imageConfigured,
+    },
+    secrets: {
+      chatFromAdmin: sec.chatFromAdmin,
+      imageFromAdmin: sec.imageFromAdmin,
+      chatMasked: sec.chatMasked,
+      imageMasked: sec.imageMasked,
     },
   });
 });
@@ -165,6 +178,9 @@ app.put("/api/admin/settings", adminAuth, (req, res) => {
   }
   if (typeof body.announce === "string") patch.announce = body.announce.slice(0, 500);
   if (typeof body.notes === "string") patch.notes = body.notes.slice(0, 2000);
+  if (typeof body.publicApiBase === "string") {
+    patch.publicApiBase = body.publicApiBase.trim().replace(/\/$/, "").slice(0, 200);
+  }
   if (body.rateLimitPerMin != null) {
     patch.rateLimitPerMin = Math.max(10, Math.min(5000, Number(body.rateLimitPerMin) || 120));
   }
@@ -174,29 +190,47 @@ app.put("/api/admin/settings", adminAuth, (req, res) => {
   res.json({ ok: true, settings });
 });
 
+app.get("/api/admin/secrets", adminAuth, (_req, res) => {
+  res.json({ ok: true, ...ops.secretsStatus() });
+});
+
+app.put("/api/admin/secrets", adminAuth, (req, res) => {
+  const body = req.body || {};
+  ops.saveSecrets({
+    chatKey: typeof body.chatKey === "string" ? body.chatKey : undefined,
+    imageKey: typeof body.imageKey === "string" ? body.imageKey : undefined,
+    clearChat: Boolean(body.clearChat),
+    clearImage: Boolean(body.clearImage),
+  });
+  res.json({ ok: true, ...ops.secretsStatus() });
+});
+
 app.get("/api/admin/config", adminAuth, (_req, res) => {
+  const sec = ops.secretsStatus();
+  const settings = ops.loadSettings();
   res.json({
     ok: true,
     env: {
-      DEEPSEEK_API_KEY: Boolean(process.env.DEEPSEEK_API_KEY),
-      OPENAI_API_KEY: Boolean(process.env.OPENAI_API_KEY),
-      OPENAI_IMAGE_API_KEY: Boolean(process.env.OPENAI_IMAGE_API_KEY),
-      WECHAT_APPID: Boolean(WECHAT_APPID),
-      WECHAT_SECRET: Boolean(WECHAT_SECRET),
-      ADMIN_PASSWORD: Boolean(ADMIN_PASSWORD),
-      WEB_PASSWORD: Boolean(process.env.WEB_PASSWORD),
-      ALLOW_DEV_LOGIN: ALLOW_DEV_LOGIN,
-      CHAT_MODEL: DEFAULT_MODEL,
-      IMAGE_MODEL: IMAGE_MODEL,
-      OPENAI_BASE_URL,
-      IMAGE_BASE_URL,
-      PORT,
-      DATA_DIR: ops.DATA_DIR,
+      "呆呆 AI 密钥": sec.chatConfigured
+        ? sec.chatFromAdmin
+          ? "已在后台配置"
+          : "已由环境变量提供"
+        : "未配置",
+      "呆呆 Image 密钥": sec.imageConfigured
+        ? sec.imageFromAdmin
+          ? "已在后台配置"
+          : "已由环境变量提供"
+        : "未配置",
+      小程序登录: WECHAT_APPID && WECHAT_SECRET ? "已配置" : "未配置",
+      管理密码: ADMIN_PASSWORD ? "已配置" : "未配置",
+      网页站长密码: WEB_PASSWORD ? "已配置" : "未配置",
+      小程序对接域名: settings.publicApiBase || "未填写",
+      开发假登录: ALLOW_DEV_LOGIN ? "开启" : "关闭",
     },
     masked: {
-      DEEPSEEK_API_KEY: ops.maskSecret(process.env.DEEPSEEK_API_KEY),
-      OPENAI_API_KEY: ops.maskSecret(process.env.OPENAI_API_KEY || process.env.OPENAI_IMAGE_API_KEY),
-      WECHAT_APPID: ops.maskSecret(WECHAT_APPID),
+      "呆呆 AI": sec.chatMasked,
+      "呆呆 Image": sec.imageMasked,
+      小程序AppID: ops.maskSecret(WECHAT_APPID),
     },
   });
 });
@@ -224,11 +258,14 @@ app.post("/api/admin/probe", adminAuth, async (req, res) => {
   const started = Date.now();
   try {
     if (kind === "chat") {
-      if (!API_KEY) return res.status(503).json({ ok: false, error: "未配置对话 Key" });
+      const chatKey = ops.getChatKey();
+      if (!chatKey) {
+        return res.status(503).json({ ok: false, error: "未配置呆呆 AI 密钥" });
+      }
       const upstream = await fetch(`${OPENAI_BASE_URL}/v1/chat/completions`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${API_KEY}`,
+          Authorization: `Bearer ${chatKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -242,14 +279,19 @@ app.post("/api/admin/probe", adminAuth, async (req, res) => {
         }),
       });
       const data = await upstream.json().catch(() => ({}));
-      const text = data?.choices?.[0]?.message?.content || "";
+      let text = data?.choices?.[0]?.message?.content || "";
+      let errMsg = upstream.ok ? "" : data?.error?.message || "探测失败";
+      errMsg = String(errMsg).replace(
+        /DeepSeek|OpenAI|GPT[\s-]?Image|gpt-image-\d+|Claude|API key/gi,
+        "呆呆 AI"
+      );
       return res.json({
         ok: upstream.ok,
         kind,
         ms: Date.now() - started,
         status: upstream.status,
-        preview: String(text).slice(0, 80),
-        error: upstream.ok ? "" : data?.error?.message || "探测失败",
+        preview: String(text).slice(0, 80) || (upstream.ok ? "呆呆 AI 连通" : ""),
+        error: errMsg,
       });
     }
     if (kind === "wechat") {
@@ -257,17 +299,18 @@ app.post("/api/admin/probe", adminAuth, async (req, res) => {
         ok: Boolean(WECHAT_APPID && WECHAT_SECRET),
         kind,
         ms: Date.now() - started,
-        preview: WECHAT_APPID ? `AppID ${ops.maskSecret(WECHAT_APPID)}` : "未配置",
-        error: WECHAT_APPID && WECHAT_SECRET ? "" : "缺少 WECHAT_APPID / WECHAT_SECRET",
+        preview: WECHAT_APPID ? `小程序已绑定 ${ops.maskSecret(WECHAT_APPID)}` : "未配置",
+        error: WECHAT_APPID && WECHAT_SECRET ? "" : "缺少小程序登录配置",
       });
     }
     if (kind === "image") {
+      const imageKey = ops.getImageKey();
       return res.json({
-        ok: Boolean(IMAGE_API_KEY),
+        ok: Boolean(imageKey),
         kind,
         ms: Date.now() - started,
-        preview: IMAGE_API_KEY ? `模型 ${IMAGE_MODEL}` : "未配置",
-        error: IMAGE_API_KEY ? "" : "缺少生图 Key（不实际扣费探测）",
+        preview: imageKey ? "呆呆 Image 密钥已就绪" : "未配置",
+        error: imageKey ? "" : "缺少呆呆 Image 密钥（不实际扣费探测）",
       });
     }
     return res.status(400).json({ ok: false, error: "未知探测类型" });
@@ -284,15 +327,19 @@ app.post("/api/admin/probe", adminAuth, async (req, res) => {
 
 app.get("/api/public/status", (_req, res) => {
   const settings = ops.loadSettings();
+  const chatReady = Boolean(ops.getChatKey());
+  const imageReady = Boolean(ops.getImageKey());
   res.json({
     ok: true,
     brand: "呆呆网络",
     product: "呆呆 AI",
+    imageProduct: "呆呆 Image",
     maintenance: Boolean(settings.maintenance),
     message: settings.maintenance ? settings.maintenanceMessage : "",
     announce: settings.announce || "",
-    chatReady: Boolean(API_KEY) && !settings.blockChat && !settings.maintenance,
-    imageReady: Boolean(IMAGE_API_KEY) && !settings.blockImage && !settings.maintenance,
+    apiBase: settings.publicApiBase || "",
+    chatReady: chatReady && !settings.blockChat && !settings.maintenance,
+    imageReady: imageReady && !settings.blockImage && !settings.maintenance,
   });
 });
 
@@ -418,24 +465,25 @@ app.get("/health", (_req, res) => {
     ok: true,
     service: "daidaiyx",
     brand: "呆呆网络",
-    chatConfigured: Boolean(API_KEY),
-    imageConfigured: Boolean(IMAGE_API_KEY),
+    chatConfigured: Boolean(ops.getChatKey()),
+    imageConfigured: Boolean(ops.getImageKey()),
     wechatLoginConfigured: Boolean(WECHAT_APPID && WECHAT_SECRET),
   });
 });
 
 app.get("/api/chat/health", (_req, res) => {
-  if (!API_KEY) {
+  if (!ops.getChatKey()) {
     return res.status(503).json({
       ok: false,
-      message: "未配置 DEEPSEEK_API_KEY 或 OPENAI_API_KEY",
+      message: "呆呆 AI 对话服务未就绪",
     });
   }
-  res.json({ ok: true, model: DEFAULT_MODEL, baseUrl: OPENAI_BASE_URL });
+  res.json({ ok: true, product: "呆呆 AI" });
 });
 
 app.post("/api/chat", gateProductApi("chat"), async (req, res) => {
-  if (!API_KEY) {
+  const chatKey = ops.getChatKey();
+  if (!chatKey) {
     return res.status(503).json({
       error: { message: "呆呆 AI 对话服务未就绪" },
     });
@@ -443,7 +491,7 @@ app.post("/api/chat", gateProductApi("chat"), async (req, res) => {
 
   const body = req.body || {};
   const payload = {
-    model: body.model || DEFAULT_MODEL,
+    model: DEFAULT_MODEL,
     messages: body.messages || [],
     max_tokens: body.max_tokens ?? 2000,
     temperature: body.temperature ?? 0.7,
@@ -460,7 +508,7 @@ app.post("/api/chat", gateProductApi("chat"), async (req, res) => {
     const upstream = await fetch(`${OPENAI_BASE_URL}/v1/chat/completions`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${API_KEY}`,
+        Authorization: `Bearer ${chatKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
@@ -523,10 +571,11 @@ app.post("/api/chat", gateProductApi("chat"), async (req, res) => {
 });
 
 app.post("/api/image", gateProductApi("image"), async (req, res) => {
-  if (!IMAGE_API_KEY) {
+  const imageKey = ops.getImageKey();
+  if (!imageKey) {
     return res.status(503).json({
       error: {
-        message: "呆呆 AI 生图服务未就绪",
+        message: "呆呆 Image 服务未就绪",
       },
     });
   }
@@ -538,7 +587,7 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
   }
 
   const size = body.size || "1024x1024";
-  const model = body.model || IMAGE_MODEL;
+  const model = IMAGE_MODEL;
   const payload = {
     model,
     prompt,
@@ -551,7 +600,7 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
     const upstream = await fetch(`${IMAGE_BASE_URL}/v1/images/generations`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${IMAGE_API_KEY}`,
+        Authorization: `Bearer ${imageKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
@@ -593,7 +642,7 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
     ops.pushLatency("image", Date.now() - started);
     res.json({
       ok: true,
-      model,
+      product: "呆呆 Image",
       size,
       image,
       revised_prompt: item.revised_prompt || "",
@@ -613,10 +662,11 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
  * body: { prompt, image_b64, mime?, size?, model? }
  */
 app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
-  if (!IMAGE_API_KEY) {
+  const imageKey = ops.getImageKey();
+  if (!imageKey) {
     return res.status(503).json({
       error: {
-        message: "呆呆 AI 改图服务未就绪",
+        message: "呆呆 Image 服务未就绪",
       },
     });
   }
@@ -639,7 +689,7 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
   }
 
   const size = body.size || "1024x1024";
-  const model = body.model || IMAGE_MODEL;
+  const model = IMAGE_MODEL;
   const ext = mime.includes("jpeg") || mime.includes("jpg") ? "jpg" : "png";
 
   const started = Date.now();
@@ -661,7 +711,7 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
       form.append(fieldName, new Blob([buf], { type: mime }), `upload.${ext}`);
       const upstream = await fetch(`${IMAGE_BASE_URL}/v1/images/edits`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${IMAGE_API_KEY}` },
+        headers: { Authorization: `Bearer ${imageKey}` },
         body: form,
       });
       const raw = await upstream.text();
@@ -712,7 +762,7 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
     ops.pushLatency("imageEdit", Date.now() - started);
     res.json({
       ok: true,
-      model,
+      product: "呆呆 Image",
       size,
       image,
       revised_prompt: item.revised_prompt || "",
@@ -751,6 +801,6 @@ app.get("*", (req, res, next) => {
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(
-    `呆呆网络 listening on ${PORT}, chatConfigured=${Boolean(API_KEY)}, site=/, admin=/admin/`
+    `呆呆网络 listening on ${PORT}, chatConfigured=${Boolean(ops.getChatKey())}, site=/, admin=/admin/`
   );
 });

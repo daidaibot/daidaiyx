@@ -144,12 +144,12 @@ async function loadOverview() {
     : `<p>对外产品名：<b>呆呆 AI</b>。小程序记录在用户本地；本后台看服务端状态与调用。</p>`;
 
   const rows = [
-    ["对话", data.chatConfigured, `模型 ${data.models?.chat || "—"}`],
-    ["生图/改图", data.imageConfigured, `模型 ${data.models?.image || "—"}`],
-    ["小程序微信登录", data.wechatLoginConfigured, "WECHAT_APPID + SECRET"],
-    ["网页站长通行", data.webPasswordConfigured, "WEB/ADMIN_PASSWORD"],
+    ["呆呆 AI（对话）", data.chatConfigured, data.secrets?.chatFromAdmin ? "后台已配置密钥" : "待后台或环境变量配置"],
+    ["呆呆 Image（生图）", data.imageConfigured, data.secrets?.imageFromAdmin ? "后台已配置密钥" : "待后台或环境变量配置"],
+    ["小程序微信登录", data.wechatLoginConfigured, "需配置小程序 AppID/Secret"],
+    ["网页站长通行", data.webPasswordConfigured, "管理密码"],
     ["管理后台", data.adminConfigured, "ADMIN_PASSWORD"],
-    ["开发假登录", data.allowDevLogin, "ALLOW_DEV_LOGIN=1 时开启"],
+    ["开发假登录", data.allowDevLogin, "仅联调时开启"],
   ];
   document.getElementById("svcBody").innerHTML = rows
     .map(([name, ok, tip]) => {
@@ -239,9 +239,24 @@ async function loadSettingsForm() {
   document.getElementById("setBlockChat").checked = !!s.blockChat;
   document.getElementById("setBlockImage").checked = !!s.blockImage;
   document.getElementById("setRate").value = s.rateLimitPerMin || 120;
+  document.getElementById("setApiBase").value = s.publicApiBase || "";
   document.getElementById("setAnnounce").value = s.announce || "";
   document.getElementById("setNotes").value = s.notes || "";
   document.getElementById("settingsTip").textContent = "";
+  await loadSecretsForm();
+}
+
+async function loadSecretsForm() {
+  const sec = await api("/api/admin/secrets");
+  document.getElementById("secChat").value = "";
+  document.getElementById("secImage").value = "";
+  document.getElementById("secChatHint").textContent = sec.chatConfigured
+    ? `已配置 · ${sec.chatMasked}${sec.chatFromAdmin ? " · 来源：后台" : " · 来源：环境变量"}`
+    : "未配置呆呆 AI 密钥";
+  document.getElementById("secImageHint").textContent = sec.imageConfigured
+    ? `已配置 · ${sec.imageMasked}${sec.imageFromAdmin ? " · 来源：后台" : " · 来源：环境变量"}`
+    : "未配置呆呆 Image 密钥";
+  document.getElementById("secretsTip").textContent = "";
 }
 
 async function saveSettings() {
@@ -256,11 +271,34 @@ async function saveSettings() {
         blockChat: document.getElementById("setBlockChat").checked,
         blockImage: document.getElementById("setBlockImage").checked,
         rateLimitPerMin: Number(document.getElementById("setRate").value || 120),
+        publicApiBase: document.getElementById("setApiBase").value,
         announce: document.getElementById("setAnnounce").value,
         notes: document.getElementById("setNotes").value,
       }),
     });
-    tip.textContent = "已保存";
+    tip.textContent = "已保存。请把小程序 app.js 的 apiBase 设为同一域名。";
+    await loadOverview();
+  } catch (e) {
+    tip.textContent = e.message || "保存失败";
+  }
+}
+
+async function saveSecrets() {
+  const tip = document.getElementById("secretsTip");
+  tip.textContent = "保存中…";
+  try {
+    const body = {};
+    const chatKey = document.getElementById("secChat").value.trim();
+    const imageKey = document.getElementById("secImage").value.trim();
+    if (chatKey) body.chatKey = chatKey;
+    if (imageKey) body.imageKey = imageKey;
+    if (!chatKey && !imageKey) {
+      tip.textContent = "未填写新密钥（如要改密钥请输入新值）";
+      return;
+    }
+    await api("/api/admin/secrets", { method: "PUT", body: JSON.stringify(body) });
+    tip.textContent = "密钥已保存";
+    await loadSecretsForm();
     await loadOverview();
   } catch (e) {
     tip.textContent = e.message || "保存失败";
@@ -325,6 +363,19 @@ document.getElementById("clearLogs").addEventListener("click", async () => {
   await loadErrors();
 });
 document.getElementById("saveSettings").addEventListener("click", () => saveSettings());
+document.getElementById("saveSecrets").addEventListener("click", () => saveSecrets());
+document.getElementById("clearChatKey").addEventListener("click", async () => {
+  if (!confirm("清除后台保存的呆呆 AI 密钥？")) return;
+  await api("/api/admin/secrets", { method: "PUT", body: JSON.stringify({ clearChat: true }) });
+  await loadSecretsForm();
+  await loadOverview();
+});
+document.getElementById("clearImageKey").addEventListener("click", async () => {
+  if (!confirm("清除后台保存的呆呆 Image 密钥？")) return;
+  await api("/api/admin/secrets", { method: "PUT", body: JSON.stringify({ clearImage: true }) });
+  await loadSecretsForm();
+  await loadOverview();
+});
 document.querySelectorAll("[data-probe]").forEach((btn) => {
   btn.addEventListener("click", () => runProbe(btn.dataset.probe));
 });

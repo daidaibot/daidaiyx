@@ -970,7 +970,7 @@ Page({
       url: `${apiBase.replace(/\/$/, '')}/api/image`,
       method: 'POST',
       timeout: 180000,
-      data: { prompt, size, model: 'gpt-image-2' },
+      data: { prompt, size },
       success: (res) => {
         const data = res.data || {};
         if (data.image) {
@@ -1057,7 +1057,6 @@ Page({
         image_b64,
         mime,
         size,
-        model: 'gpt-image-2',
       },
       success: (res) => {
         const data = res.data || {};

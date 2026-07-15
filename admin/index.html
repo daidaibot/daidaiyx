@@ -116,6 +116,9 @@
           <label class="field">每分钟限流（同 IP）
             <input id="setRate" type="number" min="10" max="5000" />
           </label>
+          <label class="field">小程序对接域名（apiBase，无末尾斜杠）
+            <input id="setApiBase" type="text" placeholder="https://你的云托管域名" />
+          </label>
           <label class="field">对外公告（小程序/网页可读取）
             <textarea id="setAnnounce" rows="3" maxlength="500"></textarea>
           </label>
@@ -125,20 +128,39 @@
           <button type="button" class="btn" id="saveSettings">保存设置</button>
           <p class="muted" id="settingsTip"></p>
         </div>
+
+        <div class="box form-box" style="margin-top:16px;">
+          <div class="box-h">密钥配置（推荐在此填写，不必暴露在环境变量面板）</div>
+          <p class="muted">对外只显示「呆呆 AI / 呆呆 Image」。密钥保存后仅显示脱敏片段。</p>
+          <label class="field">呆呆 AI 密钥（对话）
+            <input id="secChat" type="password" placeholder="留空则不改动已有密钥" autocomplete="off" />
+          </label>
+          <p class="muted" id="secChatHint">未配置</p>
+          <label class="field">呆呆 Image 密钥（生图/改图）
+            <input id="secImage" type="password" placeholder="留空则不改动；可与上面相同" autocomplete="off" />
+          </label>
+          <p class="muted" id="secImageHint">未配置</p>
+          <div class="toolbar">
+            <button type="button" class="btn" id="saveSecrets">保存密钥</button>
+            <button type="button" class="btn danger" id="clearChatKey">清除对话密钥</button>
+            <button type="button" class="btn danger" id="clearImageKey">清除生图密钥</button>
+          </div>
+          <p class="muted" id="secretsTip"></p>
+        </div>
       </section>
 
       <section id="tab-probe" class="panel hidden">
         <div class="cards probe-cards">
           <div class="box">
-            <div class="box-h">对话链路</div>
-            <p class="muted">会真实请求上游一小条（可能产生少量费用）</p>
-            <button type="button" class="btn" data-probe="chat">探测对话</button>
+            <div class="box-h">呆呆 AI 链路</div>
+            <p class="muted">会真实请求一小条（可能产生少量费用）</p>
+            <button type="button" class="btn" data-probe="chat">探测呆呆 AI</button>
             <pre class="probe-out" id="probeChat">尚未探测</pre>
           </div>
           <div class="box">
-            <div class="box-h">生图配置</div>
-            <p class="muted">只检查 Key/模型，不实际生图</p>
-            <button type="button" class="btn" data-probe="image">检测生图配置</button>
+            <div class="box-h">呆呆 Image 配置</div>
+            <p class="muted">只检查密钥是否就绪，不实际生图</p>
+            <button type="button" class="btn" data-probe="image">检测呆呆 Image</button>
             <pre class="probe-out" id="probeImage">尚未探测</pre>
           </div>
           <div class="box">
@@ -161,11 +183,11 @@
         <div class="guide">
           <h3>上线清单</h3>
           <ol>
-            <li>云托管环境变量：<code>ADMIN_PASSWORD</code>、<code>DEEPSEEK_API_KEY</code>、<code>OPENAI_API_KEY</code>、<code>WECHAT_APPID</code>、<code>WECHAT_SECRET</code></li>
-            <li>小程序 <code>app.js</code> 的 <code>apiBase</code> 填云托管 HTTPS 域名</li>
-            <li>小程序后台配置 request 合法域名</li>
-            <li>本后台地址：<code>/admin/</code>；网页站长聊天：<code>/chat.html</code></li>
-            <li>用户聊天记录在用户手机本地；本台看的是服务端调用量、日志与管控开关</li>
+            <li>发布云托管后打开 <code>/admin/</code>，在「运行管控」填写：呆呆 AI / 呆呆 Image 密钥、小程序对接域名</li>
+            <li>小程序 <code>app.js</code> 的 <code>apiBase</code> 填同一域名，并加入 request 合法域名</li>
+            <li>云托管仍需 <code>ADMIN_PASSWORD</code>；小程序登录需 <code>WECHAT_APPID</code> / <code>WECHAT_SECRET</code></li>
+            <li>网页端与后台同源已对接（相对路径 <code>/api/*</code>）；用户聊天请用小程序</li>
+            <li>对外永不展示供应商名，一律「呆呆 AI / 呆呆 Image」</li>
           </ol>
           <h3>参考能力来源</h3>
           <p class="muted">结构参考常见开源运营台（对话监控、配置、限流、健康探测），按本项目无独立数据库的约束做了文件持久化设置 + 内存日志。</p>
