@@ -6,10 +6,9 @@ App({
     token: '',
     /**
      * 云托管公网域名（不要末尾斜杠）
-     * 例：https://xxxx.ap-shanghai.wxcloudrun.com
-     * 需与后台「运行管控 → 小程序对接域名」一致，并加入小程序 request 合法域名
+     * 需与 DAIDAI_API_BASE、小程序 request 合法域名一致
      */
-    apiBase: '',
+    apiBase: 'https://daidai12-282126-9-1453974162.sh.run.tcloudbase.com',
   },
   onLaunch() {
     try {

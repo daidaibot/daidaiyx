@@ -6,13 +6,21 @@
 
 ## 网页端（与小程序同款）
 
-部署后打开云托管域名根路径即可：
+云托管域名：
 
-- `/` 淡绿主页（splash → 英雄区 → 关于/联系）
+`https://daidai12-282126-9-1453974162.sh.run.tcloudbase.com`
+
+- `/` 淡绿主页
 - `/chat.html` 豆包风呆呆 AI
 - `/admin/` 管理后台
 
-生图对接说明见根目录 **[对接文档.txt](./对接文档.txt)**（官方 OpenAI + 代理池）。
+生图对接见 **[对接文档.txt](./对接文档.txt)**。
+
+## 小程序
+
+`miniprogram/app.js` 的 `apiBase` 已指向上述云托管域名。  
+AppID：`wxdf3dcb6c1680f134`。  
+请在微信公众平台把该域名加入 **request 合法域名**。
 
 ## 微信云托管环境变量
 
@@ -21,23 +29,18 @@
 | `ADMIN_PASSWORD` | 管理后台密码 |
 | `WECHAT_APPID` / `WECHAT_SECRET` | 小程序微信登录 |
 | `DAIDAI_AI_KEY` | 呆呆 AI（对话）密钥 |
-| `DAIDAI_IMAGE_KEY` | 呆呆 Image（生图）密钥，填 OpenAI `sk-` |
-| `DAIDAI_IMAGE_BASE_URL` | **`https://api.openai.com`**（不要加 `/v1`） |
-| `DAIDAI_API_BASE` | 小程序对接域名（云托管公网地址，不要末尾 `/`，不要 `/admin`） |
-| `DAIDAI_HTTPS_PROXY` / 代理池文件 | 国外出口；推荐后台粘贴 Webshare 列表 |
+| `DAIDAI_IMAGE_KEY` | 呆呆 Image 密钥（OpenAI `sk-`） |
+| `DAIDAI_IMAGE_BASE_URL` | **`http://154.12.94.236`**（国外 VPS 中转，不要加 `/v1`） |
+| `DAIDAI_API_BASE` | `https://daidai12-282126-9-1453974162.sh.run.tcloudbase.com` |
 
-**不要再设** `DAIDAI_IMAGE_PROXY_ASYNC=1`（旧 Cloudflare 异步中转）。
+**不要设** `DAIDAI_IMAGE_PROXY_ASYNC=1`。
 
 ### 推荐生图配置
 
 ```
-DAIDAI_IMAGE_BASE_URL=https://api.openai.com
+DAIDAI_IMAGE_BASE_URL=http://154.12.94.236
 DAIDAI_IMAGE_KEY=sk-你的密钥
+DAIDAI_API_BASE=https://daidai12-282126-9-1453974162.sh.run.tcloudbase.com
 ```
 
-部署后：管理后台 → 运维配置 → **出站代理池**，粘贴 Webshare `IP:端口:用户:密码` 全文并保存。  
-同页可看「服务器出口 IP」（白名单用，账号密码方式一般不需要）。
-
-失败会自动换下一个代理（默认最多试 3 个，可用 `DAIDAI_PROXY_TRIES` 调整）。
-
-仓库已内置 `config/proxies.builtin.txt`（约 100 条 Webshare），部署后自动加载；后台运维页也可覆盖保存。
+路径：云托管 → VPS nginx → OpenAI。VPS 健康检查：`http://154.12.94.236/health`。
