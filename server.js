@@ -4,6 +4,7 @@ const express = require("express");
 const ops = require("./lib/ops");
 const imageOut = require("./lib/imageOut");
 const imageJobs = require("./lib/imageJobs");
+const { outboundFetch, hasOutboundProxy, maskProxy } = require("./lib/outbound");
 
 const app = express();
 const PORT = Number(process.env.PORT) || 80;
@@ -503,7 +504,7 @@ app.post("/api/admin/probe", adminAuth, async (req, res) => {
         });
       }
       // 用 /v1/models 真连中转（不扣生图费），验证密钥+网络
-      const upstream = await fetch(`${IMAGE_BASE_URL}/v1/models`, {
+      const upstream = await outboundFetch(`${IMAGE_BASE_URL}/v1/models`, {
         method: "GET",
         headers: { Authorization: `Bearer ${imageKey}` },
       });
@@ -835,7 +836,7 @@ async function fetchUpstreamImageGeneration(imageKey, bodyObj) {
   };
   if (useProxyAsync) headers["X-Proxy-Mode"] = "async";
 
-  let upstream = await fetch(`${IMAGE_BASE_URL}/v1/images/generations`, {
+  let upstream = await outboundFetch(`${IMAGE_BASE_URL}/v1/images/generations`, {
     method: "POST",
     headers,
     body: JSON.stringify(bodyObj),
@@ -850,7 +851,7 @@ async function fetchUpstreamImageGeneration(imageKey, bodyObj) {
         Authorization: `Bearer ${imageKey}`,
         "Content-Type": "application/json",
       };
-      upstream = await fetch(`${IMAGE_BASE_URL}/v1/images/generations`, {
+      upstream = await outboundFetch(`${IMAGE_BASE_URL}/v1/images/generations`, {
         method: "POST",
         headers: syncHeaders,
         body: JSON.stringify(bodyObj),
@@ -872,7 +873,7 @@ async function fetchUpstreamImageGeneration(imageKey, bodyObj) {
     console.log(`[image] proxy async accepted task=${meta.id || "?"} poll=${pollPath}`);
     for (let i = 0; i < 120; i++) {
       await sleep(2000);
-      upstream = await fetch(`${IMAGE_BASE_URL}${pollPath}`, {
+      upstream = await outboundFetch(`${IMAGE_BASE_URL}${pollPath}`, {
         method: "GET",
         headers: { Authorization: `Bearer ${imageKey}` },
       });
@@ -1217,7 +1218,7 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
       form.append("size", size);
       form.append("n", "1");
       form.append(fieldName, new Blob([buf], { type: mime }), `upload.${ext}`);
-      const upstream = await fetch(`${IMAGE_BASE_URL}/v1/images/edits`, {
+      const upstream = await outboundFetch(`${IMAGE_BASE_URL}/v1/images/edits`, {
         method: "POST",
         headers: { Authorization: `Bearer ${imageKey}` },
         body: form,
@@ -1356,7 +1357,7 @@ app.get("*", (req, res, next) => {
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(
-    `呆呆网络 listening on ${PORT}, chatConfigured=${Boolean(ops.getChatKey())}, imageBase=${IMAGE_BASE_URL}, sharp=${imageOut.hasSharp()}, site=/, admin=/admin/`
+    `呆呆网络 listening on ${PORT}, chatConfigured=${Boolean(ops.getChatKey())}, imageBase=${IMAGE_BASE_URL}, outboundProxy=${hasOutboundProxy() ? maskProxy() : "off"}, sharp=${imageOut.hasSharp()}, site=/, admin=/admin/`
   );
   imageOut.cleanupOldImages();
   setInterval(() => imageOut.cleanupOldImages(), 6 * 3600 * 1000).unref?.();

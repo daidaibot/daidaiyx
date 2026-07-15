@@ -22,9 +22,15 @@
 | `DAIDAI_IMAGE_KEY` | 呆呆 Image（生图）密钥 |
 | `DAIDAI_IMAGE_BASE_URL` | 生图中转地址，如 `https://openai.dai520.cn`（不要加 `/v1`） |
 | `DAIDAI_API_BASE` | 小程序对接域名（云托管公网地址，不要末尾 `/`，不要 `/admin`） |
-| `DAIDAI_IMAGE_PROXY_ASYNC` | 填 `1`：中转走异步生图（`X-Proxy-Mode: async` + 轮询），解决云托管出站约 60s 超时 |
+| `DAIDAI_IMAGE_PROXY_ASYNC` | 填 `1`：走 Cloudflare 中转异步（一般不如代理池省事） |
+| `DAIDAI_HTTPS_PROXY` | 国外代理池地址，如 `http://user:pass@主机:端口`（生图出站走代理） |
 
-可选：`DAIDAI_AI_BASE_URL`、`DAIDAI_AI_MODEL`、`DAIDAI_IMAGE_MODEL`、`WEB_PASSWORD`。  
-旧名 `DEEPSEEK_*` / `OPENAI_*` 仍兼容，但新部署请用上面的 `DAIDAI_*`。
+**推荐用代理池直连官方生图时云托管这样配：**
 
-生图仍 504 时：云托管加上 `DAIDAI_IMAGE_PROXY_ASYNC=1` 并重新部署；中转需已开通 Cloudflare Queue（通常要 Workers Paid）。
+```
+DAIDAI_HTTPS_PROXY=http://账号:密码@代理主机:端口
+DAIDAI_IMAGE_BASE_URL=https://api.openai.com
+DAIDAI_IMAGE_KEY=sk-你的密钥
+```
+
+不要再开 `DAIDAI_IMAGE_PROXY_ASYNC=1`。代理需支持 HTTPS CONNECT，且超时够长（建议 ≥180 秒）。
