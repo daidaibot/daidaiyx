@@ -409,6 +409,43 @@ app.put("/api/admin/proxies", adminAuth, (req, res) => {
   res.json({ ok: true, count, file: "data/proxies.txt" });
 });
 
+/** 服务器真实出口 IP（直连，不走代理池）——给 Webshare IP 白名单用 */
+app.get("/api/admin/egress-ip", adminAuth, async (_req, res) => {
+  const sources = [
+    "https://api.ipify.org",
+    "https://ipv4.icanhazip.com",
+    "https://ifconfig.me/ip",
+  ];
+  const errors = [];
+  for (const url of sources) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000);
+      const r = await fetch(url, {
+        signal: ctrl.signal,
+        headers: { Accept: "text/plain" },
+      });
+      clearTimeout(timer);
+      const text = String(await r.text()).trim();
+      const m = text.match(/\b(\d{1,3}(?:\.\d{1,3}){3})\b/);
+      if (m) {
+        return res.json({
+          ok: true,
+          ip: m[1],
+          source: url,
+          note: "这是云托管真实出口 IP，可填进 Webshare IP Authorization（账号密码方式一般不需要）",
+        });
+      }
+      errors.push(`${url}: unexpected ${text.slice(0, 40)}`);
+    } catch (e) {
+      errors.push(`${url}: ${(e && e.message) || e}`);
+    }
+  }
+  res.status(502).json({
+    error: { message: "无法获取出口 IP", detail: errors.join(" | ") },
+  });
+});
+
 app.get("/api/admin/config", adminAuth, (_req, res) => {
   const sec = ops.secretsStatus();
   const settings = ops.loadSettings();

@@ -480,6 +480,37 @@ async function loadProxiesForm() {
   } catch (e) {
     document.getElementById("proxyHint").textContent = e.message || "加载失败";
   }
+  await loadEgressIp();
+}
+
+async function loadEgressIp() {
+  const el = document.getElementById("egressIp");
+  if (!el) return;
+  el.textContent = "检测中…";
+  try {
+    const data = await api("/api/admin/egress-ip");
+    el.textContent = data.ip || "—";
+    el.dataset.ip = data.ip || "";
+    const note = document.getElementById("egressIpNote");
+    if (note && data.note) note.textContent = data.note;
+  } catch (e) {
+    el.textContent = e.message || "获取失败";
+    el.dataset.ip = "";
+  }
+}
+
+async function copyEgressIp() {
+  const ip = (document.getElementById("egressIp") || {}).dataset?.ip || "";
+  if (!ip) {
+    toast("还没有可用的出口 IP", "bad");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(ip);
+    toast(`已复制 ${ip}`, "ok");
+  } catch {
+    toast(ip, "ok");
+  }
 }
 
 async function saveProxies() {
@@ -748,6 +779,9 @@ document.getElementById("saveSettings").addEventListener("click", () =>
   saveSettingsForm().catch(() => {})
 );
 document.getElementById("saveSecrets").addEventListener("click", () => saveSecrets());
+document.getElementById("saveProxies").addEventListener("click", () => saveProxies());
+document.getElementById("refreshEgressIp").addEventListener("click", () => loadEgressIp());
+document.getElementById("copyEgressIp").addEventListener("click", () => copyEgressIp());
 
 document.getElementById("clearChatKey").addEventListener("click", async () => {
   if (!confirm("清除后台保存的呆呆 AI 密钥？")) return;
