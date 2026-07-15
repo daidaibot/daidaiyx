@@ -24,7 +24,7 @@ app.use(express.json({ limit: "20mb" }));
 
 const WECHAT_APPID = process.env.WECHAT_APPID || process.env.WX_APPID || "";
 const WECHAT_SECRET = process.env.WECHAT_SECRET || process.env.WX_SECRET || "";
-/** 网站扫码 / 微信内网页授权（开放平台网站应用，参考 wechat OAuth2 流程） */
+/** 网页微信跳转授权（公众号网页授权，不走扫码） */
 const WECHAT_OPEN_APPID =
   process.env.WECHAT_OPEN_APPID || process.env.WECHAT_WEB_APPID || "";
 const WECHAT_OPEN_SECRET =
@@ -210,9 +210,9 @@ app.post("/api/auth/login", async (req, res) => {
 });
 
 /**
- * 网页微信登录（跳转微信）
- * 参考开放平台 OAuth2 / 常见开源实现（qrconnect + code 换 token）
- * 环境变量：WECHAT_OPEN_APPID + WECHAT_OPEN_SECRET
+ * 网页微信登录：直接跳转微信授权页（不走扫码）
+ * 需在微信内打开；环境变量 WECHAT_OPEN_APPID + WECHAT_OPEN_SECRET
+ * （公众号/开放平台网页授权应用）
  * 可选：WECHAT_OAUTH_REDIRECT=https://域名/api/auth/wechat/callback
  */
 app.get("/api/auth/wechat/start", (req, res) => {
@@ -222,7 +222,7 @@ app.get("/api/auth/wechat/start", (req, res) => {
       .type("html")
       .send(
         "<!doctype html><meta charset=utf-8><title>未配置</title>" +
-          "<p style='font-family:sans-serif;padding:40px'>未配置网站微信登录。<br/>请在云托管设置 <code>WECHAT_OPEN_APPID</code> 与 <code>WECHAT_OPEN_SECRET</code>（微信开放平台 · 网站应用）。</p>"
+          "<p style='font-family:sans-serif;padding:40px'>未配置网页微信登录。<br/>请在云托管设置 <code>WECHAT_OPEN_APPID</code> 与 <code>WECHAT_OPEN_SECRET</code>。</p>"
       );
   }
 
@@ -238,21 +238,13 @@ app.get("/api/auth/wechat/start", (req, res) => {
   const redirectUri = encodeURIComponent(
     WECHAT_OAUTH_REDIRECT || `${base}/api/auth/wechat/callback`
   );
-  const ua = String(req.headers["user-agent"] || "");
-  const inWeChat = /MicroMessenger/i.test(ua);
 
-  // 微信内走网页授权；浏览器/PC 走扫码登录
-  const url = inWeChat
-    ? `https://open.weixin.qq.com/connect/oauth2/authorize?appid=${encodeURIComponent(
-        WECHAT_OPEN_APPID
-      )}&redirect_uri=${redirectUri}&response_type=code&scope=snsapi_userinfo&state=${encodeURIComponent(
-        state
-      )}#wechat_redirect`
-    : `https://open.weixin.qq.com/connect/qrconnect?appid=${encodeURIComponent(
-        WECHAT_OPEN_APPID
-      )}&redirect_uri=${redirectUri}&response_type=code&scope=snsapi_login&state=${encodeURIComponent(
-        state
-      )}#wechat_redirect`;
+  const url =
+    `https://open.weixin.qq.com/connect/oauth2/authorize?appid=${encodeURIComponent(
+      WECHAT_OPEN_APPID
+    )}&redirect_uri=${redirectUri}&response_type=code&scope=snsapi_userinfo&state=${encodeURIComponent(
+      state
+    )}#wechat_redirect`;
 
   res.redirect(302, url);
 });

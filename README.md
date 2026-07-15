@@ -15,6 +15,6 @@
 推荐部署：**微信云托管**。环境变量：
 
 - `WECHAT_APPID` / `WECHAT_SECRET` — 小程序登录（必填，否则不能登录）
-- `WECHAT_OPEN_APPID` / `WECHAT_OPEN_SECRET` — 网页跳转微信扫码登录（开放平台网站应用）
+- `WECHAT_OPEN_APPID` / `WECHAT_OPEN_SECRET` — 网页跳转微信授权（公众号网页授权，微信内打开）
 - `WECHAT_OAUTH_REDIRECT` — `https://域名/api/auth/wechat/callback`
 - `ADMIN_PASSWORD`、`DEEPSEEK_API_KEY`、`OPENAI_API_KEY`

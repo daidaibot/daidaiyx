@@ -82,13 +82,13 @@ https://你的云托管域名/admin/    ← 管理后台</pre>
                 <li><code>DEEPSEEK_API_KEY</code> = 对话</li>
                 <li><code>OPENAI_API_KEY</code> = 生图/改图</li>
                 <li><code>WECHAT_APPID</code> / <code>WECHAT_SECRET</code> = 小程序微信登录</li>
-                <li><code>WECHAT_OPEN_APPID</code> / <code>WECHAT_OPEN_SECRET</code> = 网页跳转微信扫码登录（开放平台网站应用）</li>
+                <li><code>WECHAT_OPEN_APPID</code> / <code>WECHAT_OPEN_SECRET</code> = 网页跳转微信授权（公众号网页授权，非扫码）</li>
                 <li><code>WECHAT_OAUTH_REDIRECT</code> = <code>https://你的域名/api/auth/wechat/callback</code>（建议填写）</li>
               </ul>
             </li>
             <li>重新发布服务</li>
             <li>浏览器打开上面的 <code>/admin/</code> 网址登录</li>
-            <li>网页用户点「微信登录」会跳转微信授权 / 扫码，不再支持随便填昵称</li>
+            <li>网页请在<strong>微信内</strong>打开，点「微信登录」会自动跳转授权，不做扫码</li>
           </ol>
           <h3>也可以？</h3>
           <p>自己的云服务器、任意能跑 Node 的 Docker 环境都行，但和你现有小程序链路最省事的是<strong>继续用微信云托管</strong>。</p>
