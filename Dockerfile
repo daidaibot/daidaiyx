@@ -10,8 +10,10 @@ COPY lib ./lib
 COPY admin ./admin
 COPY site ./site
 RUN mkdir -p /app/data
+VOLUME ["/app/data"]
 
 ENV PORT=80
 EXPOSE 80
+ENV DATA_DIR=/app/data
 
 CMD ["npm", "start"]

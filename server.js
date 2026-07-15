@@ -64,7 +64,7 @@ function gateProductApi(kind) {
       return res.status(503).json({
         ok: false,
         maintenance: true,
-        error: { message: settings.maintenanceMessage || "维护中" },
+        error: { message: ops.maintenanceText(settings) },
       });
     }
     if (kind === "chat" && settings.blockChat) {
@@ -91,7 +91,7 @@ function maintenanceApiGate(req, res, next) {
   return res.status(503).json({
     ok: false,
     maintenance: true,
-    error: { message: settings.maintenanceMessage || "维护中" },
+    error: { message: ops.maintenanceText(settings) },
   });
 }
 
@@ -114,7 +114,7 @@ function maintenanceSiteGate(req, res, next) {
   if (!settings.maintenance) return next();
   const accept = String(req.headers.accept || "");
   if (req.method === "GET" && (accept.includes("text/html") || req.path.endsWith(".html") || req.path === "/" || !path.extname(req.path))) {
-    return res.status(503).type("html").send(maintenancePageHtml(settings.maintenanceMessage));
+    return res.status(503).type("html").send(maintenancePageHtml(ops.maintenanceText(settings)));
   }
   next();
 }

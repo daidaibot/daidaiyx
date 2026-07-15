@@ -75,7 +75,9 @@ function switchTab(name) {
   document.getElementById(`tab-${name}`).classList.remove("hidden");
   const t = TITLES[name] || ["后台", ""];
   document.getElementById("pageTitle").textContent = t[0];
-  document.getElementById("pageSub").textContent = t[1];
+  if (document.getElementById("pageSub")) {
+    document.getElementById("pageSub").textContent = t[1];
+  }
   if (name === "logs") loadLogs();
   if (name === "errors") loadErrors();
   if (name === "routes") loadRoutes();
@@ -144,12 +146,11 @@ async function loadOverview() {
     : "";
 
   const rows = [
-    ["呆呆 AI（对话）", data.chatConfigured, data.secrets?.chatFromAdmin ? "后台已配置密钥" : "待后台或环境变量配置"],
-    ["呆呆 Image（生图）", data.imageConfigured, data.secrets?.imageFromAdmin ? "后台已配置密钥" : "待后台或环境变量配置"],
-    ["小程序微信登录", data.wechatLoginConfigured, "需配置小程序 AppID/Secret"],
-    ["网页站长通行", data.webPasswordConfigured, "管理密码"],
-    ["管理后台", data.adminConfigured, "ADMIN_PASSWORD"],
-    ["开发假登录", data.allowDevLogin, "仅联调时开启"],
+    ["呆呆 AI", data.chatConfigured, data.secrets?.chatMasked || "—"],
+    ["呆呆 Image", data.imageConfigured, data.secrets?.imageMasked || "—"],
+    ["小程序登录", data.wechatLoginConfigured, "—"],
+    ["网页通行", data.webPasswordConfigured, "—"],
+    ["管理后台", data.adminConfigured, "—"],
   ];
   document.getElementById("svcBody").innerHTML = rows
     .map(([name, ok, tip]) => {
@@ -235,7 +236,9 @@ async function loadSettingsForm() {
   const data = await api("/api/admin/settings");
   const s = data.settings || {};
   document.getElementById("setMaintenance").checked = !!s.maintenance;
-  document.getElementById("setMaintMsg").value = s.maintenanceMessage || "";
+  document.getElementById("setMaintMsg").value =
+    s.maintenanceMessage ||
+    "呆呆 AI 正在升级维护，暂时无法使用聊天与生图。完成后会很快恢复，请稍后再来。";
   document.getElementById("setBlockChat").checked = !!s.blockChat;
   document.getElementById("setBlockImage").checked = !!s.blockImage;
   document.getElementById("setRate").value = s.rateLimitPerMin || 120;
