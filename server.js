@@ -1,5 +1,6 @@
 ﻿const path = require("path");
 const express = require("express");
+const ops = require("./lib/ops");
 
 const app = express();
 const PORT = Number(process.env.PORT) || 80;
@@ -21,6 +22,7 @@ const IMAGE_API_KEY =
 const IMAGE_MODEL = process.env.IMAGE_MODEL || "gpt-image-2";
 
 app.use(express.json({ limit: "20mb" }));
+app.use(ops.requestLogger);
 
 const WECHAT_APPID = process.env.WECHAT_APPID || process.env.WX_APPID || "";
 const WECHAT_SECRET = process.env.WECHAT_SECRET || process.env.WX_SECRET || "";
@@ -36,6 +38,9 @@ const stats = {
   image: 0,
   imageEdit: 0,
   login: 0,
+  chatFail: 0,
+  imageFail: 0,
+  imageEditFail: 0,
   startedAt: Date.now(),
 };
 
@@ -52,6 +57,28 @@ function adminAuth(req, res, next) {
     return res.status(401).json({ error: { message: "未登录或已过期" } });
   }
   next();
+}
+
+function gateProductApi(kind) {
+  return (req, res, next) => {
+    const settings = ops.loadSettings();
+    if (settings.maintenance) {
+      return res.status(503).json({
+        error: { message: settings.maintenanceMessage || "维护中" },
+      });
+    }
+    if (kind === "chat" && settings.blockChat) {
+      return res.status(503).json({ error: { message: "对话服务已暂停" } });
+    }
+    if ((kind === "image" || kind === "imageEdit") && settings.blockImage) {
+      return res.status(503).json({ error: { message: "生图服务已暂停" } });
+    }
+    const ip = ops.clientIp(req);
+    if (!ops.checkRateLimit(ip, settings.rateLimitPerMin)) {
+      return res.status(429).json({ error: { message: "请求过于频繁，请稍后再试" } });
+    }
+    next();
+  };
 }
 
 app.post("/api/admin/login", (req, res) => {
@@ -76,6 +103,8 @@ app.post("/api/admin/logout", adminAuth, (req, res) => {
 });
 
 app.get("/api/admin/overview", adminAuth, (_req, res) => {
+  const settings = ops.loadSettings();
+  const system = ops.getSystemInfo();
   res.json({
     ok: true,
     brand: "呆呆网络",
@@ -86,12 +115,184 @@ app.get("/api/admin/overview", adminAuth, (_req, res) => {
       image: stats.image,
       imageEdit: stats.imageEdit,
       login: stats.login,
+      chatFail: stats.chatFail,
+      imageFail: stats.imageFail,
+      imageEditFail: stats.imageEditFail,
     },
+    hourly: ops.getHourlySeries(24),
+    system,
+    settings,
     chatConfigured: Boolean(API_KEY),
     imageConfigured: Boolean(IMAGE_API_KEY),
     wechatLoginConfigured: Boolean(WECHAT_APPID && WECHAT_SECRET),
     webPasswordConfigured: Boolean(WEB_PASSWORD),
     adminConfigured: Boolean(ADMIN_PASSWORD),
+    allowDevLogin: ALLOW_DEV_LOGIN,
+    models: {
+      chat: DEFAULT_MODEL,
+      image: IMAGE_MODEL,
+      chatBase: OPENAI_BASE_URL,
+      imageBase: IMAGE_BASE_URL,
+    },
+  });
+});
+
+app.get("/api/admin/logs", adminAuth, (req, res) => {
+  const limit = Math.min(200, Number(req.query.limit) || 80);
+  res.json({ ok: true, logs: ops.getLogs(limit) });
+});
+
+app.get("/api/admin/errors", adminAuth, (req, res) => {
+  const limit = Math.min(150, Number(req.query.limit) || 60);
+  res.json({ ok: true, errors: ops.getErrors(limit) });
+});
+
+app.post("/api/admin/logs/clear", adminAuth, (_req, res) => {
+  ops.clearLogs();
+  res.json({ ok: true });
+});
+
+app.get("/api/admin/settings", adminAuth, (_req, res) => {
+  res.json({ ok: true, settings: ops.loadSettings() });
+});
+
+app.put("/api/admin/settings", adminAuth, (req, res) => {
+  const body = req.body || {};
+  const patch = {};
+  if (typeof body.maintenance === "boolean") patch.maintenance = body.maintenance;
+  if (typeof body.maintenanceMessage === "string") {
+    patch.maintenanceMessage = body.maintenanceMessage.slice(0, 200);
+  }
+  if (typeof body.announce === "string") patch.announce = body.announce.slice(0, 500);
+  if (typeof body.notes === "string") patch.notes = body.notes.slice(0, 2000);
+  if (body.rateLimitPerMin != null) {
+    patch.rateLimitPerMin = Math.max(10, Math.min(5000, Number(body.rateLimitPerMin) || 120));
+  }
+  if (typeof body.blockChat === "boolean") patch.blockChat = body.blockChat;
+  if (typeof body.blockImage === "boolean") patch.blockImage = body.blockImage;
+  const settings = ops.saveSettings(patch);
+  res.json({ ok: true, settings });
+});
+
+app.get("/api/admin/config", adminAuth, (_req, res) => {
+  res.json({
+    ok: true,
+    env: {
+      DEEPSEEK_API_KEY: Boolean(process.env.DEEPSEEK_API_KEY),
+      OPENAI_API_KEY: Boolean(process.env.OPENAI_API_KEY),
+      OPENAI_IMAGE_API_KEY: Boolean(process.env.OPENAI_IMAGE_API_KEY),
+      WECHAT_APPID: Boolean(WECHAT_APPID),
+      WECHAT_SECRET: Boolean(WECHAT_SECRET),
+      ADMIN_PASSWORD: Boolean(ADMIN_PASSWORD),
+      WEB_PASSWORD: Boolean(process.env.WEB_PASSWORD),
+      ALLOW_DEV_LOGIN: ALLOW_DEV_LOGIN,
+      CHAT_MODEL: DEFAULT_MODEL,
+      IMAGE_MODEL: IMAGE_MODEL,
+      OPENAI_BASE_URL,
+      IMAGE_BASE_URL,
+      PORT,
+      DATA_DIR: ops.DATA_DIR,
+    },
+    masked: {
+      DEEPSEEK_API_KEY: ops.maskSecret(process.env.DEEPSEEK_API_KEY),
+      OPENAI_API_KEY: ops.maskSecret(process.env.OPENAI_API_KEY || process.env.OPENAI_IMAGE_API_KEY),
+      WECHAT_APPID: ops.maskSecret(WECHAT_APPID),
+    },
+  });
+});
+
+app.get("/api/admin/routes", adminAuth, (_req, res) => {
+  res.json({
+    ok: true,
+    routes: [
+      { method: "POST", path: "/api/auth/login", desc: "小程序微信登录" },
+      { method: "POST", path: "/api/auth/web-login", desc: "网页站长通行" },
+      { method: "GET", path: "/api/public/status", desc: "公开状态/公告" },
+      { method: "POST", path: "/api/chat", desc: "对话代理" },
+      { method: "POST", path: "/api/image", desc: "生图" },
+      { method: "POST", path: "/api/image/edit", desc: "改图" },
+      { method: "GET", path: "/health", desc: "健康检查" },
+      { method: "GET", path: "/admin/", desc: "管理后台" },
+      { method: "GET", path: "/", desc: "同款网站首页" },
+      { method: "GET", path: "/chat.html", desc: "网页聊天（站长）" },
+    ],
+  });
+});
+
+app.post("/api/admin/probe", adminAuth, async (req, res) => {
+  const kind = String((req.body && req.body.kind) || "chat");
+  const started = Date.now();
+  try {
+    if (kind === "chat") {
+      if (!API_KEY) return res.status(503).json({ ok: false, error: "未配置对话 Key" });
+      const upstream = await fetch(`${OPENAI_BASE_URL}/v1/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: DEFAULT_MODEL,
+          messages: [
+            { role: "system", content: "你是呆呆 AI，只回复「探测成功」四个字。" },
+            { role: "user", content: "ping" },
+          ],
+          max_tokens: 20,
+          stream: false,
+        }),
+      });
+      const data = await upstream.json().catch(() => ({}));
+      const text = data?.choices?.[0]?.message?.content || "";
+      return res.json({
+        ok: upstream.ok,
+        kind,
+        ms: Date.now() - started,
+        status: upstream.status,
+        preview: String(text).slice(0, 80),
+        error: upstream.ok ? "" : data?.error?.message || "探测失败",
+      });
+    }
+    if (kind === "wechat") {
+      return res.json({
+        ok: Boolean(WECHAT_APPID && WECHAT_SECRET),
+        kind,
+        ms: Date.now() - started,
+        preview: WECHAT_APPID ? `AppID ${ops.maskSecret(WECHAT_APPID)}` : "未配置",
+        error: WECHAT_APPID && WECHAT_SECRET ? "" : "缺少 WECHAT_APPID / WECHAT_SECRET",
+      });
+    }
+    if (kind === "image") {
+      return res.json({
+        ok: Boolean(IMAGE_API_KEY),
+        kind,
+        ms: Date.now() - started,
+        preview: IMAGE_API_KEY ? `模型 ${IMAGE_MODEL}` : "未配置",
+        error: IMAGE_API_KEY ? "" : "缺少生图 Key（不实际扣费探测）",
+      });
+    }
+    return res.status(400).json({ ok: false, error: "未知探测类型" });
+  } catch (err) {
+    ops.pushError({ source: "probe", message: err.message || String(err) });
+    return res.status(502).json({
+      ok: false,
+      kind,
+      ms: Date.now() - started,
+      error: err.message || "探测失败",
+    });
+  }
+});
+
+app.get("/api/public/status", (_req, res) => {
+  const settings = ops.loadSettings();
+  res.json({
+    ok: true,
+    brand: "呆呆网络",
+    product: "呆呆 AI",
+    maintenance: Boolean(settings.maintenance),
+    message: settings.maintenance ? settings.maintenanceMessage : "",
+    announce: settings.announce || "",
+    chatReady: Boolean(API_KEY) && !settings.blockChat && !settings.maintenance,
+    imageReady: Boolean(IMAGE_API_KEY) && !settings.blockImage && !settings.maintenance,
   });
 });
 
@@ -129,6 +330,7 @@ app.post("/api/auth/login", async (req, res) => {
       }
       const openid = `dev_${hashCode(code)}`;
       stats.login += 1;
+      ops.bumpHourly("login");
       return res.json({
         ok: true,
         openid,
@@ -149,12 +351,14 @@ app.post("/api/auth/login", async (req, res) => {
     const data = await upstream.json();
     if (!data.openid) {
       console.error("jscode2session failed:", data);
+      ops.pushError({ source: "auth", message: "jscode2session 无 openid" });
       return res.status(401).json({
         ok: false,
         error: { message: "微信授权失败，请返回重试" },
       });
     }
     stats.login += 1;
+    ops.bumpHourly("login");
     return res.json({
       ok: true,
       openid: data.openid,
@@ -165,6 +369,7 @@ app.post("/api/auth/login", async (req, res) => {
     });
   } catch (err) {
     console.error("auth login error:", err);
+    ops.pushError({ source: "auth", message: err.message || String(err) });
     return res.status(502).json({
       ok: false,
       error: { message: "登录服务繁忙，请稍后再试" },
@@ -189,6 +394,7 @@ app.post("/api/auth/web-login", (req, res) => {
   }
   const openid = "web_owner";
   stats.login += 1;
+  ops.bumpHourly("login");
   return res.json({
     ok: true,
     openid,
@@ -228,7 +434,7 @@ app.get("/api/chat/health", (_req, res) => {
   res.json({ ok: true, model: DEFAULT_MODEL, baseUrl: OPENAI_BASE_URL });
 });
 
-app.post("/api/chat", async (req, res) => {
+app.post("/api/chat", gateProductApi("chat"), async (req, res) => {
   if (!API_KEY) {
     return res.status(503).json({
       error: { message: "呆呆 AI 对话服务未就绪" },
@@ -249,6 +455,7 @@ app.post("/api/chat", async (req, res) => {
     return res.status(400).json({ error: { message: "messages 不能为空" } });
   }
 
+  const started = Date.now();
   try {
     const upstream = await fetch(`${OPENAI_BASE_URL}/v1/chat/completions`, {
       method: "POST",
@@ -273,10 +480,14 @@ app.post("/api/chat", async (req, res) => {
         /DeepSeek|OpenAI|GPT[\s-]?Image|gpt-image-\d+|Claude|API key/gi,
         "呆呆 AI"
       );
+      stats.chatFail += 1;
+      ops.pushError({ source: "chat", message, status: upstream.status });
       return res.status(upstream.status).json({ error: { message } });
     }
 
     stats.chat += 1;
+    ops.bumpHourly("chat");
+    ops.pushLatency("chat", Date.now() - started);
 
     if (payload.stream) {
       res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
@@ -303,13 +514,15 @@ app.post("/api/chat", async (req, res) => {
     res.json(data);
   } catch (err) {
     console.error("chat proxy error:", err);
+    stats.chatFail += 1;
+    ops.pushError({ source: "chat", message: err.message || String(err) });
     res.status(502).json({
       error: { message: err instanceof Error ? err.message : "代理请求失败" },
     });
   }
 });
 
-app.post("/api/image", async (req, res) => {
+app.post("/api/image", gateProductApi("image"), async (req, res) => {
   if (!IMAGE_API_KEY) {
     return res.status(503).json({
       error: {
@@ -333,6 +546,7 @@ app.post("/api/image", async (req, res) => {
     n: 1,
   };
 
+  const started = Date.now();
   try {
     const upstream = await fetch(`${IMAGE_BASE_URL}/v1/images/generations`, {
       method: "POST",
@@ -355,6 +569,8 @@ app.post("/api/image", async (req, res) => {
       const message =
         data?.error?.message ||
         (raw ? raw.slice(0, 300) : `上游生图错误 ${upstream.status}`);
+      stats.imageFail += 1;
+      ops.pushError({ source: "image", message, status: upstream.status });
       return res.status(upstream.status).json({ error: { message } });
     }
 
@@ -367,10 +583,14 @@ app.post("/api/image", async (req, res) => {
     }
 
     if (!image) {
+      stats.imageFail += 1;
+      ops.pushError({ source: "image", message: "上游未返回图片数据" });
       return res.status(502).json({ error: { message: "上游未返回图片数据" } });
     }
 
     stats.image += 1;
+    ops.bumpHourly("image");
+    ops.pushLatency("image", Date.now() - started);
     res.json({
       ok: true,
       model,
@@ -380,6 +600,8 @@ app.post("/api/image", async (req, res) => {
     });
   } catch (err) {
     console.error("image proxy error:", err);
+    stats.imageFail += 1;
+    ops.pushError({ source: "image", message: err.message || String(err) });
     res.status(502).json({
       error: { message: err instanceof Error ? err.message : "生图代理失败" },
     });
@@ -390,7 +612,7 @@ app.post("/api/image", async (req, res) => {
  * AI 改图：原图 + 文字指令 → gpt-image-2 /v1/images/edits
  * body: { prompt, image_b64, mime?, size?, model? }
  */
-app.post("/api/image/edit", async (req, res) => {
+app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
   if (!IMAGE_API_KEY) {
     return res.status(503).json({
       error: {
@@ -420,6 +642,7 @@ app.post("/api/image/edit", async (req, res) => {
   const model = body.model || IMAGE_MODEL;
   const ext = mime.includes("jpeg") || mime.includes("jpg") ? "jpg" : "png";
 
+  const started = Date.now();
   try {
     const buf = Buffer.from(imageB64, "base64");
     if (!buf.length) {
@@ -464,6 +687,8 @@ app.post("/api/image/edit", async (req, res) => {
           data?.error?.message ||
           (retry.raw || raw || "").slice(0, 300) ||
           `上游改图错误 ${retry.upstream.status}`;
+        stats.imageEditFail += 1;
+        ops.pushError({ source: "imageEdit", message, status: retry.upstream.status });
         return res.status(retry.upstream.status).json({ error: { message } });
       }
     }
@@ -477,10 +702,14 @@ app.post("/api/image/edit", async (req, res) => {
     }
 
     if (!image) {
+      stats.imageEditFail += 1;
+      ops.pushError({ source: "imageEdit", message: "上游未返回图片数据" });
       return res.status(502).json({ error: { message: "上游未返回图片数据" } });
     }
 
     stats.imageEdit += 1;
+    ops.bumpHourly("imageEdit");
+    ops.pushLatency("imageEdit", Date.now() - started);
     res.json({
       ok: true,
       model,
@@ -490,6 +719,8 @@ app.post("/api/image/edit", async (req, res) => {
     });
   } catch (err) {
     console.error("image edit proxy error:", err);
+    stats.imageEditFail += 1;
+    ops.pushError({ source: "imageEdit", message: err.message || String(err) });
     res.status(502).json({
       error: { message: err instanceof Error ? err.message : "改图代理失败" },
     });

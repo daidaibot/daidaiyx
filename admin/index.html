@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>呆呆网络 · 后台</title>
+  <title>呆呆网络 · 运营后台</title>
   <link rel="stylesheet" href="./admin.css" />
 </head>
 <body>
   <div id="loginView" class="login-wrap">
     <div class="login-card">
       <div class="brand">呆呆网络</div>
-      <h1>管理后台</h1>
-      <p class="muted">仅管理员可进入，密码在云托管环境变量 <code>ADMIN_PASSWORD</code></p>
+      <h1>运营后台</h1>
+      <p class="muted">密码来自云托管环境变量 <code>ADMIN_PASSWORD</code></p>
       <input id="pwd" type="password" placeholder="管理员密码" autocomplete="current-password" />
       <button id="loginBtn" type="button">登录</button>
       <p id="loginErr" class="err"></p>
@@ -21,76 +21,154 @@
   <div id="appView" class="app hidden">
     <aside class="side">
       <div class="side-brand">呆呆网络</div>
+      <div class="side-sub">运营控制台</div>
       <nav>
         <button class="nav on" data-tab="overview">总览</button>
-        <button class="nav" data-tab="services">服务状态</button>
-        <button class="nav" data-tab="guide">部署说明</button>
+        <button class="nav" data-tab="logs">请求日志</button>
+        <button class="nav" data-tab="errors">错误日志</button>
+        <button class="nav" data-tab="services">服务配置</button>
+        <button class="nav" data-tab="settings">运行管控</button>
+        <button class="nav" data-tab="probe">连通探测</button>
+        <button class="nav" data-tab="routes">接口清单</button>
+        <button class="nav" data-tab="guide">部署清单</button>
       </nav>
       <button id="logoutBtn" class="logout" type="button">退出</button>
     </aside>
     <main class="main">
       <header class="top">
-        <h2 id="pageTitle">总览</h2>
-        <span class="badge" id="aliveBadge">检测中…</span>
+        <div>
+          <h2 id="pageTitle">总览</h2>
+          <p class="top-sub" id="pageSub">呆呆 AI 云端运营数据</p>
+        </div>
+        <div class="top-right">
+          <button type="button" class="btn ghost" id="refreshBtn">刷新</button>
+          <span class="badge" id="aliveBadge">检测中…</span>
+        </div>
       </header>
 
       <section id="tab-overview" class="panel">
-        <div class="cards">
-          <div class="card">
-            <div class="card-k">对话请求</div>
-            <div class="card-v" id="statChat">—</div>
+        <div class="cards" id="statCards"></div>
+        <div class="grid-2">
+          <div class="box">
+            <div class="box-h">近 24 小时请求走势</div>
+            <div class="bars" id="hourlyBars"></div>
           </div>
-          <div class="card">
-            <div class="card-k">生图请求</div>
-            <div class="card-v" id="statImage">—</div>
-          </div>
-          <div class="card">
-            <div class="card-k">改图请求</div>
-            <div class="card-v" id="statEdit">—</div>
-          </div>
-          <div class="card">
-            <div class="card-k">登录次数</div>
-            <div class="card-v" id="statLogin">—</div>
+          <div class="box">
+            <div class="box-h">系统信息</div>
+            <div class="kv" id="sysInfo"></div>
           </div>
         </div>
-        <div class="note">
-          <p>对外产品名：<b>呆呆 AI</b>（不展示底层供应商）</p>
-          <p>小程序聊天记录保存在用户手机本地；本后台看的是云端服务状态与调用量。</p>
+        <div class="note" id="announceNote"></div>
+      </section>
+
+      <section id="tab-logs" class="panel hidden">
+        <div class="toolbar">
+          <button type="button" class="btn" id="reloadLogs">刷新日志</button>
+          <button type="button" class="btn danger" id="clearLogs">清空日志</button>
+        </div>
+        <div class="table-wrap">
+          <table class="table compact">
+            <thead>
+              <tr><th>时间</th><th>方法</th><th>路径</th><th>状态</th><th>耗时</th><th>IP</th></tr>
+            </thead>
+            <tbody id="logsBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="tab-errors" class="panel hidden">
+        <div class="toolbar">
+          <button type="button" class="btn" id="reloadErrors">刷新错误</button>
+        </div>
+        <div class="table-wrap">
+          <table class="table compact">
+            <thead>
+              <tr><th>时间</th><th>来源</th><th>状态</th><th>信息</th></tr>
+            </thead>
+            <tbody id="errorsBody"></tbody>
+          </table>
         </div>
       </section>
 
       <section id="tab-services" class="panel hidden">
+        <div class="box">
+          <div class="box-h">能力状态</div>
+          <table class="table">
+            <thead><tr><th>能力</th><th>状态</th><th>说明</th></tr></thead>
+            <tbody id="svcBody"></tbody>
+          </table>
+        </div>
+        <div class="box" style="margin-top:16px;">
+          <div class="box-h">环境变量（仅显示是否配置 / 脱敏）</div>
+          <div class="kv" id="envInfo"></div>
+        </div>
+      </section>
+
+      <section id="tab-settings" class="panel hidden">
+        <div class="box form-box">
+          <div class="box-h">运行开关</div>
+          <label class="switch-row"><input type="checkbox" id="setMaintenance" /> 维护模式（暂停对话/生图）</label>
+          <label class="field">维护提示文案
+            <input id="setMaintMsg" type="text" maxlength="200" />
+          </label>
+          <label class="switch-row"><input type="checkbox" id="setBlockChat" /> 单独暂停对话</label>
+          <label class="switch-row"><input type="checkbox" id="setBlockImage" /> 单独暂停生图/改图</label>
+          <label class="field">每分钟限流（同 IP）
+            <input id="setRate" type="number" min="10" max="5000" />
+          </label>
+          <label class="field">对外公告（小程序/网页可读取）
+            <textarea id="setAnnounce" rows="3" maxlength="500"></textarea>
+          </label>
+          <label class="field">站长备注（仅后台可见）
+            <textarea id="setNotes" rows="4" maxlength="2000"></textarea>
+          </label>
+          <button type="button" class="btn" id="saveSettings">保存设置</button>
+          <p class="muted" id="settingsTip"></p>
+        </div>
+      </section>
+
+      <section id="tab-probe" class="panel hidden">
+        <div class="cards probe-cards">
+          <div class="box">
+            <div class="box-h">对话链路</div>
+            <p class="muted">会真实请求上游一小条（可能产生少量费用）</p>
+            <button type="button" class="btn" data-probe="chat">探测对话</button>
+            <pre class="probe-out" id="probeChat">尚未探测</pre>
+          </div>
+          <div class="box">
+            <div class="box-h">生图配置</div>
+            <p class="muted">只检查 Key/模型，不实际生图</p>
+            <button type="button" class="btn" data-probe="image">检测生图配置</button>
+            <pre class="probe-out" id="probeImage">尚未探测</pre>
+          </div>
+          <div class="box">
+            <div class="box-h">小程序登录</div>
+            <p class="muted">检查 AppID / Secret 是否已配置</p>
+            <button type="button" class="btn" data-probe="wechat">检测微信登录</button>
+            <pre class="probe-out" id="probeWechat">尚未探测</pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-routes" class="panel hidden">
         <table class="table">
-          <thead>
-            <tr><th>能力</th><th>状态</th><th>说明</th></tr>
-          </thead>
-          <tbody id="svcBody"></tbody>
+          <thead><tr><th>方法</th><th>路径</th><th>说明</th></tr></thead>
+          <tbody id="routesBody"></tbody>
         </table>
       </section>
 
       <section id="tab-guide" class="panel hidden">
         <div class="guide">
-          <h3>部署在哪里？</h3>
-          <p><b>推荐：微信云托管</b>（和现在 API 同一个服务）。部署后：</p>
-          <pre>https://你的云托管域名/          ← 和小程序同款网站
-https://你的云托管域名/admin/    ← 管理后台</pre>
+          <h3>上线清单</h3>
           <ol>
-            <li>微信公众平台 → 云托管 → 服务设置</li>
-            <li>环境变量加上：
-              <ul>
-                <li><code>ADMIN_PASSWORD</code> = 你的后台密码</li>
-                <li><code>DEEPSEEK_API_KEY</code> = 对话</li>
-                <li><code>OPENAI_API_KEY</code> = 生图/改图</li>
-                <li><code>WECHAT_APPID</code> / <code>WECHAT_SECRET</code> = 小程序微信登录（用户用这个）</li>
-                <li><code>ADMIN_PASSWORD</code> = 后台 + 网页站长通行（也可另设 <code>WEB_PASSWORD</code>）</li>
-              </ul>
-            </li>
-            <li>重新发布服务</li>
-            <li>浏览器打开上面的 <code>/admin/</code> 网址登录</li>
-            <li>网页聊天仅本人用密码进入；用户全部走小程序</li>
+            <li>云托管环境变量：<code>ADMIN_PASSWORD</code>、<code>DEEPSEEK_API_KEY</code>、<code>OPENAI_API_KEY</code>、<code>WECHAT_APPID</code>、<code>WECHAT_SECRET</code></li>
+            <li>小程序 <code>app.js</code> 的 <code>apiBase</code> 填云托管 HTTPS 域名</li>
+            <li>小程序后台配置 request 合法域名</li>
+            <li>本后台地址：<code>/admin/</code>；网页站长聊天：<code>/chat.html</code></li>
+            <li>用户聊天记录在用户手机本地；本台看的是服务端调用量、日志与管控开关</li>
           </ol>
-          <h3>也可以？</h3>
-          <p>自己的云服务器、任意能跑 Node 的 Docker 环境都行，但和你现有小程序链路最省事的是<strong>继续用微信云托管</strong>。</p>
+          <h3>参考能力来源</h3>
+          <p class="muted">结构参考常见开源运营台（对话监控、配置、限流、健康探测），按本项目无独立数据库的约束做了文件持久化设置 + 内存日志。</p>
         </div>
       </section>
     </main>
