@@ -48,6 +48,35 @@ const stats = {
   startedAt: Date.now(),
 };
 
+function logApiError(entry, res) {
+  if (res && res.locals) res.locals.errorLogged = true;
+  ops.pushError(
+    Object.assign(
+      {
+        at: Date.now(),
+      },
+      entry || {}
+    )
+  );
+}
+
+function sanitizePublicError(message, fallback) {
+  const raw = String(message || "").trim();
+  if (!raw) return fallback || "服务暂时繁忙，请稍后再试";
+  return raw
+    .replace(/DeepSeek|OpenAI|GPT[\s-]?Image|gpt-image-\d+|Claude|API key|platform\.openai\.com/gi, "呆呆 AI")
+    .replace(/https?:\/\/[^\s)]+/gi, "[地址已隐藏]")
+    .slice(0, 200);
+}
+
+function imageConfigHint() {
+  return {
+    hasKey: Boolean(ops.getImageKey()),
+    base: IMAGE_BASE_URL,
+    model: IMAGE_MODEL,
+  };
+}
+
 function issueAdminToken() {
   const token = `adm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
   ADMIN_TOKENS.add(token);
@@ -66,7 +95,18 @@ function adminAuth(req, res, next) {
 function gateProductApi(kind) {
   return (req, res, next) => {
     const settings = ops.loadSettings();
+    const ip = ops.clientIp(req);
     if (settings.maintenance) {
+      logApiError(
+        {
+          source: kind,
+          message: "维护模式拦截",
+          status: 503,
+          path: req.path,
+          ip,
+        },
+        res
+      );
       return res.status(503).json({
         ok: false,
         maintenance: true,
@@ -74,13 +114,42 @@ function gateProductApi(kind) {
       });
     }
     if (kind === "chat" && settings.blockChat) {
+      logApiError(
+        {
+          source: "chat",
+          message: "对话服务已暂停",
+          status: 503,
+          path: req.path,
+          ip,
+        },
+        res
+      );
       return res.status(503).json({ error: { message: "对话服务已暂停" } });
     }
     if ((kind === "image" || kind === "imageEdit") && settings.blockImage) {
+      logApiError(
+        {
+          source: kind,
+          message: "生图服务已暂停",
+          status: 503,
+          path: req.path,
+          ip,
+        },
+        res
+      );
       return res.status(503).json({ error: { message: "生图服务已暂停" } });
     }
-    const ip = ops.clientIp(req);
     if (!ops.checkRateLimit(ip, settings.rateLimitPerMin)) {
+      logApiError(
+        {
+          source: kind,
+          message: "请求过于频繁",
+          status: 429,
+          path: req.path,
+          ip,
+        },
+        res
+      );
       return res.status(429).json({ error: { message: "请求过于频繁，请稍后再试" } });
     }
     next();
@@ -91,7 +160,9 @@ function gateProductApi(kind) {
 function maintenanceApiGate(req, res, next) {
   if (!req.path.startsWith("/api/")) return next();
   if (req.path.startsWith("/api/admin")) return next();
-  if (req.path === "/api/public/status" || req.path === "/health") return next();
+  if (req.path === "/api/public/status" || req.path === "/health" || req.path === "/api/report-error") {
+    return next();
+  }
   const settings = ops.loadSettings();
   if (!settings.maintenance) return next();
   return res.status(503).json({
@@ -182,6 +253,12 @@ app.get("/api/admin/overview", adminAuth, (_req, res) => {
     webPasswordConfigured: Boolean(WEB_PASSWORD),
     adminConfigured: Boolean(ADMIN_PASSWORD),
     allowDevLogin: ALLOW_DEV_LOGIN,
+    upstream: {
+      chatBase: CHAT_BASE_URL,
+      imageBase: IMAGE_BASE_URL,
+      chatModel: DEFAULT_MODEL,
+      imageModel: IMAGE_MODEL,
+    },
     models: {
       chat: "呆呆 AI",
       image: "呆呆 Image",
@@ -209,6 +286,23 @@ app.get("/api/admin/errors", adminAuth, (req, res) => {
 
 app.post("/api/admin/logs/clear", adminAuth, (_req, res) => {
   ops.clearLogs();
+  res.json({ ok: true });
+});
+
+/** 前端/小程序上报错误（用户看到的「处理失败」也会进后台错误日志） */
+app.post("/api/report-error", (req, res) => {
+  const body = req.body || {};
+  logApiError(
+    {
+      source: String(body.source || "client").slice(0, 32),
+      message: String(body.message || "客户端上报错误").slice(0, 500),
+      status: body.status || "",
+      path: String(body.path || req.path).slice(0, 120),
+      detail: String(body.detail || "").slice(0, 500),
+      ip: ops.clientIp(req),
+    },
+    res
+  );
   res.json({ ok: true });
 });
 
@@ -272,6 +366,9 @@ app.get("/api/admin/config", adminAuth, (_req, res) => {
       管理密码: ADMIN_PASSWORD ? "已配置" : "未配置",
       网页站长密码: WEB_PASSWORD ? "已配置" : "未配置",
       小程序对接域名: settings.publicApiBase || "未填写",
+      对话上游: CHAT_BASE_URL,
+      生图上游: IMAGE_BASE_URL,
+      生图模型: IMAGE_MODEL,
       开发假登录: ALLOW_DEV_LOGIN ? "开启" : "关闭",
     },
     masked: {
@@ -352,17 +449,77 @@ app.post("/api/admin/probe", adminAuth, async (req, res) => {
     }
     if (kind === "image") {
       const imageKey = ops.getImageKey();
+      if (!imageKey) {
+        logApiError(
+          {
+            source: "probe-image",
+            message: "未配置呆呆 Image 密钥",
+            status: 503,
+            path: "/api/admin/probe",
+            detail: `base=${IMAGE_BASE_URL} model=${IMAGE_MODEL}`,
+          },
+          res
+        );
+        return res.json({
+          ok: false,
+          kind,
+          ms: Date.now() - started,
+          preview: "",
+          error: "未配置呆呆 Image 密钥",
+          base: IMAGE_BASE_URL,
+          model: IMAGE_MODEL,
+        });
+      }
+      // 用 /v1/models 真连中转（不扣生图费），验证密钥+网络
+      const upstream = await fetch(`${IMAGE_BASE_URL}/v1/models`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${imageKey}` },
+      });
+      const raw = await upstream.text();
+      let data = null;
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = null;
+      }
+      let errMsg = upstream.ok
+        ? ""
+        : data?.error?.message || raw.slice(0, 240) || `探测失败 HTTP ${upstream.status}`;
+      if (!upstream.ok) {
+        logApiError(
+          {
+            source: "probe-image",
+            message: errMsg,
+            status: upstream.status,
+            path: "/api/admin/probe",
+            detail: `base=${IMAGE_BASE_URL} model=${IMAGE_MODEL}`,
+          },
+          res
+        );
+      }
+      const modelCount = Array.isArray(data?.data) ? data.data.length : 0;
       return res.json({
-        ok: Boolean(imageKey),
+        ok: upstream.ok,
         kind,
         ms: Date.now() - started,
-        preview: imageKey ? "呆呆 Image 密钥已就绪" : "未配置",
-        error: imageKey ? "" : "缺少呆呆 Image 密钥（不实际扣费探测）",
+        status: upstream.status,
+        preview: upstream.ok
+          ? `中转可达 · ${IMAGE_BASE_URL} · 模型列表 ${modelCount} 项 · 目标模型 ${IMAGE_MODEL}`
+          : "",
+        error: errMsg,
+        base: IMAGE_BASE_URL,
+        model: IMAGE_MODEL,
       });
     }
     return res.status(400).json({ ok: false, error: "未知探测类型" });
   } catch (err) {
-    ops.pushError({ source: "probe", message: err.message || String(err) });
+    ops.pushError({
+      source: "probe",
+      message: err.message || String(err),
+      status: 502,
+      path: "/api/admin/probe",
+      detail: `kind=${kind}`,
+    });
     return res.status(502).json({
       ok: false,
       kind,
@@ -570,14 +727,20 @@ app.post("/api/chat", gateProductApi("chat"), async (req, res) => {
       } catch {
         if (errText) message = errText.slice(0, 300);
       }
-      // 对外不暴露供应商名
-      message = String(message).replace(
-        /DeepSeek|OpenAI|GPT[\s-]?Image|gpt-image-\d+|Claude|API key/gi,
-        "呆呆 AI"
-      );
       stats.chatFail += 1;
-      ops.pushError({ source: "chat", message, status: upstream.status });
-      return res.status(upstream.status).json({ error: { message } });
+      const publicMsg = sanitizePublicError(message, `呆呆 AI 暂时繁忙（${upstream.status}）`);
+      logApiError(
+        {
+          source: "chat",
+          message,
+          status: upstream.status,
+          path: "/api/chat",
+          detail: `base=${CHAT_BASE_URL} model=${payload.model || DEFAULT_MODEL}`,
+          ip: ops.clientIp(req),
+        },
+        res
+      );
+      return res.status(upstream.status).json({ error: { message: publicMsg } });
     }
 
     stats.chat += 1;
@@ -610,9 +773,20 @@ app.post("/api/chat", gateProductApi("chat"), async (req, res) => {
   } catch (err) {
     console.error("chat proxy error:", err);
     stats.chatFail += 1;
-    ops.pushError({ source: "chat", message: err.message || String(err) });
+    const message = err instanceof Error ? err.message : String(err);
+    logApiError(
+      {
+        source: "chat",
+        message,
+        status: 502,
+        path: "/api/chat",
+        detail: `base=${CHAT_BASE_URL}`,
+        ip: ops.clientIp(req),
+      },
+      res
+    );
     res.status(502).json({
-      error: { message: err instanceof Error ? err.message : "代理请求失败" },
+      error: { message: sanitizePublicError(message, "代理请求失败") },
     });
   }
 });
@@ -620,9 +794,22 @@ app.post("/api/chat", gateProductApi("chat"), async (req, res) => {
 app.post("/api/image", gateProductApi("image"), async (req, res) => {
   const imageKey = ops.getImageKey();
   if (!imageKey) {
+    const hint = imageConfigHint();
+    logApiError(
+      {
+        source: "image",
+        message: "呆呆 Image 密钥未配置",
+        status: 503,
+        path: "/api/image",
+        detail: `base=${hint.base} model=${hint.model}`,
+        ip: ops.clientIp(req),
+      },
+      res
+    );
+    stats.imageFail += 1;
     return res.status(503).json({
       error: {
-        message: "呆呆 Image 服务未就绪",
+        message: "呆呆 Image 服务未就绪，请配置 DAIDAI_IMAGE_KEY",
       },
     });
   }
@@ -630,6 +817,16 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
   const body = req.body || {};
   const prompt = String(body.prompt || "").trim();
   if (!prompt) {
+    logApiError(
+      {
+        source: "image",
+        message: "prompt 为空",
+        status: 400,
+        path: "/api/image",
+        ip: ops.clientIp(req),
+      },
+      res
+    );
     return res.status(400).json({ error: { message: "prompt 不能为空" } });
   }
 
@@ -666,8 +863,20 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
         data?.error?.message ||
         (raw ? raw.slice(0, 300) : `上游生图错误 ${upstream.status}`);
       stats.imageFail += 1;
-      ops.pushError({ source: "image", message, status: upstream.status });
-      return res.status(upstream.status).json({ error: { message } });
+      logApiError(
+        {
+          source: "image",
+          message,
+          status: upstream.status,
+          path: "/api/image",
+          detail: `model=${model} base=${IMAGE_BASE_URL} size=${size} prompt=${prompt.slice(0, 80)}`,
+          ip: ops.clientIp(req),
+        },
+        res
+      );
+      return res.status(upstream.status).json({
+        error: { message: sanitizePublicError(message, `生图失败（${upstream.status}）`) },
+      });
     }
 
     const item = data?.data?.[0] || {};
@@ -680,7 +889,17 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
 
     if (!image) {
       stats.imageFail += 1;
-      ops.pushError({ source: "image", message: "上游未返回图片数据" });
+      logApiError(
+        {
+          source: "image",
+          message: "上游未返回图片数据",
+          status: 502,
+          path: "/api/image",
+          detail: `model=${model} base=${IMAGE_BASE_URL} raw=${String(raw).slice(0, 200)}`,
+          ip: ops.clientIp(req),
+        },
+        res
+      );
       return res.status(502).json({ error: { message: "上游未返回图片数据" } });
     }
 
@@ -697,9 +916,22 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
   } catch (err) {
     console.error("image proxy error:", err);
     stats.imageFail += 1;
-    ops.pushError({ source: "image", message: err.message || String(err) });
+    const message = err instanceof Error ? err.message : String(err);
+    logApiError(
+      {
+        source: "image",
+        message,
+        status: 502,
+        path: "/api/image",
+        detail: `model=${IMAGE_MODEL} base=${IMAGE_BASE_URL} · 常见原因：未配 DAIDAI_IMAGE_BASE_URL 仍直连官方被墙，或中转不可达`,
+        ip: ops.clientIp(req),
+      },
+      res
+    );
     res.status(502).json({
-      error: { message: err instanceof Error ? err.message : "生图代理失败" },
+      error: {
+        message: sanitizePublicError(message, "生图代理失败，请检查中转与密钥"),
+      },
     });
   }
 });
@@ -711,9 +943,22 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
 app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
   const imageKey = ops.getImageKey();
   if (!imageKey) {
+    const hint = imageConfigHint();
+    logApiError(
+      {
+        source: "imageEdit",
+        message: "呆呆 Image 密钥未配置",
+        status: 503,
+        path: "/api/image/edit",
+        detail: `base=${hint.base} model=${hint.model}`,
+        ip: ops.clientIp(req),
+      },
+      res
+    );
+    stats.imageEditFail += 1;
     return res.status(503).json({
       error: {
-        message: "呆呆 Image 服务未就绪",
+        message: "呆呆 Image 服务未就绪，请配置 DAIDAI_IMAGE_KEY",
       },
     });
   }
@@ -722,9 +967,29 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
   const prompt = String(body.prompt || "").trim();
   let imageB64 = String(body.image_b64 || body.image || "").trim();
   if (!prompt) {
+    logApiError(
+      {
+        source: "imageEdit",
+        message: "prompt 为空",
+        status: 400,
+        path: "/api/image/edit",
+        ip: ops.clientIp(req),
+      },
+      res
+    );
     return res.status(400).json({ error: { message: "prompt 不能为空" } });
   }
   if (!imageB64) {
+    logApiError(
+      {
+        source: "imageEdit",
+        message: "未上传原图",
+        status: 400,
+        path: "/api/image/edit",
+        ip: ops.clientIp(req),
+      },
+      res
+    );
     return res.status(400).json({ error: { message: "请上传要修改的图片" } });
   }
 
@@ -743,9 +1008,30 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
   try {
     const buf = Buffer.from(imageB64, "base64");
     if (!buf.length) {
+      logApiError(
+        {
+          source: "imageEdit",
+          message: "图片数据无效",
+          status: 400,
+          path: "/api/image/edit",
+          ip: ops.clientIp(req),
+        },
+        res
+      );
       return res.status(400).json({ error: { message: "图片数据无效" } });
     }
     if (buf.length > 18 * 1024 * 1024) {
+      logApiError(
+        {
+          source: "imageEdit",
+          message: "图片过大",
+          status: 400,
+          path: "/api/image/edit",
+          detail: `bytes=${buf.length}`,
+          ip: ops.clientIp(req),
+        },
+        res
+      );
       return res.status(400).json({ error: { message: "图片过大，请压缩后再试" } });
     }
 
@@ -785,8 +1071,20 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
           (retry.raw || raw || "").slice(0, 300) ||
           `上游改图错误 ${retry.upstream.status}`;
         stats.imageEditFail += 1;
-        ops.pushError({ source: "imageEdit", message, status: retry.upstream.status });
-        return res.status(retry.upstream.status).json({ error: { message } });
+        logApiError(
+          {
+            source: "imageEdit",
+            message,
+            status: retry.upstream.status,
+            path: "/api/image/edit",
+            detail: `model=${model} base=${IMAGE_BASE_URL} prompt=${prompt.slice(0, 80)}`,
+            ip: ops.clientIp(req),
+          },
+          res
+        );
+        return res.status(retry.upstream.status).json({
+          error: { message: sanitizePublicError(message, `改图失败（${retry.upstream.status}）`) },
+        });
       }
     }
 
@@ -800,7 +1098,17 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
 
     if (!image) {
       stats.imageEditFail += 1;
-      ops.pushError({ source: "imageEdit", message: "上游未返回图片数据" });
+      logApiError(
+        {
+          source: "imageEdit",
+          message: "上游未返回图片数据",
+          status: 502,
+          path: "/api/image/edit",
+          detail: `model=${model} base=${IMAGE_BASE_URL} raw=${String(raw).slice(0, 200)}`,
+          ip: ops.clientIp(req),
+        },
+        res
+      );
       return res.status(502).json({ error: { message: "上游未返回图片数据" } });
     }
 
@@ -817,9 +1125,22 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
   } catch (err) {
     console.error("image edit proxy error:", err);
     stats.imageEditFail += 1;
-    ops.pushError({ source: "imageEdit", message: err.message || String(err) });
+    const message = err instanceof Error ? err.message : String(err);
+    logApiError(
+      {
+        source: "imageEdit",
+        message,
+        status: 502,
+        path: "/api/image/edit",
+        detail: `model=${IMAGE_MODEL} base=${IMAGE_BASE_URL}`,
+        ip: ops.clientIp(req),
+      },
+      res
+    );
     res.status(502).json({
-      error: { message: err instanceof Error ? err.message : "改图代理失败" },
+      error: {
+        message: sanitizePublicError(message, "改图代理失败，请检查中转与密钥"),
+      },
     });
   }
 });

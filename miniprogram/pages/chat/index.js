@@ -125,6 +125,32 @@ function friendlyError(msg) {
     .slice(0, 120);
 }
 
+function reportClientError(a, b) {
+  try {
+    let apiBase = '';
+    let payload = {};
+    if (typeof a === 'string') {
+      apiBase = a;
+      payload = b || {};
+    } else {
+      payload = a || {};
+      const app = getApp();
+      apiBase = (app.globalData && app.globalData.apiBase) || '';
+    }
+    const base = String(apiBase || '').replace(/\/$/, '');
+    if (!base) return;
+    wx.request({
+      url: `${base}/api/report-error`,
+      method: 'POST',
+      timeout: 8000,
+      data: payload,
+      fail: () => {},
+    });
+  } catch (e) {
+    /* ignore */
+  }
+}
+
 function demoTextReply(question, skill, mask) {
   const q = (question || '').trim();
   if (mask) {
@@ -932,9 +958,27 @@ Page({
             (res.data?.error?.message
               ? friendlyError(res.data.error.message)
               : demoTextReply(text, skill, mask));
+          if (!res.data?.choices?.[0]?.message?.content && res.data?.error?.message) {
+            reportClientError(apiBase, {
+              source: 'mp-chat',
+              message: res.data.error.message,
+              status: res.statusCode,
+              path: '/api/chat',
+              detail: text.slice(0, 100),
+            });
+          }
           this.typeOut(aiId, content);
         },
-        fail: () => this.typeOut(aiId, demoTextReply(text, skill, mask)),
+        fail: (err) => {
+          reportClientError(apiBase, {
+            source: 'mp-chat',
+            message: (err && err.errMsg) || '网络异常',
+            status: 'network',
+            path: '/api/chat',
+            detail: text.slice(0, 100),
+          });
+          this.typeOut(aiId, demoTextReply(text, skill, mask));
+        },
       });
       return;
     }
@@ -1013,22 +1057,38 @@ Page({
             (typeof data.error === 'string' ? data.error : '') ||
             data.message ||
             '';
+          const shown =
+            friendlyError(rawMsg) ||
+            `生图失败（${res.statusCode || '?'}），请到管理后台看错误日志`;
+          reportClientError(apiBase, {
+            source: 'mp-image',
+            message: rawMsg || shown,
+            status: res.statusCode,
+            path: '/api/image',
+            detail: `prompt=${prompt.slice(0, 100)}`,
+          });
           this.updateMessage(aiId, {
             loading: false,
-            content:
-              friendlyError(rawMsg) ||
-              `生图失败（${res.statusCode || '?'}），请到管理后台看错误日志`,
+            content: shown,
             image: '',
           });
         }
         this.setData({ busy: false }, () => this.saveCurrentSession());
       },
       fail: (err) => {
+        const tip =
+          friendlyError(err && err.errMsg) ||
+          '无法连接服务，请检查域名与 apiBase';
+        reportClientError(apiBase, {
+          source: 'mp-image',
+          message: (err && err.errMsg) || tip,
+          status: 0,
+          path: '/api/image',
+          detail: 'wx.request fail',
+        });
         this.updateMessage(aiId, {
           loading: false,
-          content:
-            friendlyError(err && err.errMsg) ||
-            '无法连接服务，请检查域名与 apiBase',
+          content: tip,
         });
         this.setData({ busy: false });
       },
@@ -1109,22 +1169,38 @@ Page({
             (typeof data.error === 'string' ? data.error : '') ||
             data.message ||
             '';
+          const tip =
+            friendlyError(rawMsg) ||
+            `改图失败（${res.statusCode || '?'}），请到管理后台看错误日志`;
+          reportClientError({
+            source: 'miniprogram-image-edit',
+            message: rawMsg || tip,
+            status: res.statusCode,
+            path: '/api/image/edit',
+            detail: `prompt=${String(prompt || '').slice(0, 60)}`,
+          });
           this.updateMessage(aiId, {
             loading: false,
-            content:
-              friendlyError(rawMsg) ||
-              `改图失败（${res.statusCode || '?'}），请到管理后台看错误日志`,
+            content: tip,
             image: '',
           });
         }
         this.setData({ busy: false }, () => this.saveCurrentSession());
       },
       fail: (err) => {
+        const tip =
+          friendlyError(err && err.errMsg) ||
+          '无法连接服务，请检查域名与 apiBase';
+        reportClientError({
+          source: 'miniprogram-image-edit',
+          message: (err && err.errMsg) || tip,
+          status: 0,
+          path: '/api/image/edit',
+          detail: 'wx.request fail',
+        });
         this.updateMessage(aiId, {
           loading: false,
-          content:
-            friendlyError(err && err.errMsg) ||
-            '无法连接服务，请检查域名与 apiBase',
+          content: tip,
         });
         this.setData({ busy: false });
       },

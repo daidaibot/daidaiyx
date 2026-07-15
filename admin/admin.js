@@ -139,6 +139,19 @@ function buildHealth(data) {
         : "缺少环境变量，小程序无法真登录",
     },
     {
+      ok: Boolean(data.upstream?.imageBase && !/api\.openai\.com$/i.test(data.upstream.imageBase)),
+      level:
+        data.upstream?.imageBase && !/api\.openai\.com$/i.test(data.upstream.imageBase)
+          ? "ok"
+          : "warn",
+      title: "生图中转地址",
+      tip: data.upstream?.imageBase
+        ? /api\.openai\.com$/i.test(data.upstream.imageBase)
+          ? `${data.upstream.imageBase}（国内直连常失败，请设 DAIDAI_IMAGE_BASE_URL）`
+          : data.upstream.imageBase
+        : "未读取到上游地址",
+    },
+    {
       ok: Boolean(s.publicApiBase),
       level: s.publicApiBase ? "ok" : "warn",
       title: "对接域名",
@@ -291,8 +304,8 @@ async function loadOverview() {
   ].join("<br>");
 
   const rows = [
-    ["呆呆 AI", data.chatConfigured, data.secrets?.chatMasked || "—"],
-    ["呆呆 Image", data.imageConfigured, data.secrets?.imageMasked || "—"],
+    ["呆呆 AI", data.chatConfigured, data.upstream?.chatBase || "—"],
+    ["呆呆 Image", data.imageConfigured, data.upstream?.imageBase || "—"],
     ["小程序登录", data.wechatLoginConfigured, data.wechatLoginConfigured ? "环境变量已配" : "缺 AppID/Secret"],
     ["网页通行", data.webPasswordConfigured, data.webPasswordConfigured ? "已启用" : "未配置（可用管理密码）"],
     ["管理后台", data.adminConfigured, "—"],
@@ -374,7 +387,7 @@ function renderErrors() {
   let rows = errorsCache.slice();
   if (q) {
     rows = rows.filter((r) =>
-      `${r.source} ${r.message} ${r.status}`.toLowerCase().includes(q)
+      `${r.source} ${r.message} ${r.status} ${r.detail} ${r.path}`.toLowerCase().includes(q)
     );
   }
   document.getElementById("errCount").textContent = `显示 ${rows.length} / ${errorsCache.length}`;
@@ -383,13 +396,14 @@ function renderErrors() {
         .map(
           (r) => `<tr>
         <td>${fmtTime(r.at)}</td>
-        <td>${esc(r.source)}</td>
+        <td>${esc(r.source)}${r.path ? `<div class="muted small">${esc(r.path)}</div>` : ""}</td>
         <td>${r.status || "—"}</td>
         <td title="${esc(r.message)}">${esc(String(r.message || "").slice(0, 200))}</td>
+        <td title="${esc(r.detail || "")}">${esc(String(r.detail || r.ip || "").slice(0, 160))}</td>
       </tr>`
         )
         .join("")
-    : `<tr><td colspan="4">暂无错误</td></tr>`;
+    : `<tr><td colspan="5">暂无错误</td></tr>`;
 }
 
 async function loadLogs() {
