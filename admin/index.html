@@ -11,6 +11,7 @@
     <div class="login-card">
       <div class="brand">呆呆网络</div>
       <h1>运营后台</h1>
+      <p class="muted">站长运维控制台 · 请输入管理员密码</p>
       <input id="pwd" type="password" placeholder="管理员密码" autocomplete="current-password" />
       <button id="loginBtn" type="button">登录</button>
       <p id="loginErr" class="err"></p>
@@ -20,32 +21,93 @@
   <div id="appView" class="app hidden">
     <aside class="side">
       <div class="side-brand">呆呆网络</div>
+      <div class="side-sub">运营控制台</div>
       <nav>
         <button class="nav on" data-tab="overview">总览</button>
-        <button class="nav" data-tab="logs">请求日志</button>
+        <button class="nav" data-tab="ops">运维配置</button>
+        <button class="nav" data-tab="logs">访问日志</button>
         <button class="nav" data-tab="errors">错误日志</button>
-        <button class="nav" data-tab="services">服务配置</button>
-        <button class="nav" data-tab="settings">运行管控</button>
         <button class="nav" data-tab="probe">连通探测</button>
-        <button class="nav" data-tab="routes">接口清单</button>
-        <button class="nav" data-tab="guide">部署清单</button>
+        <button class="nav" data-tab="guide">上线检查</button>
       </nav>
+      <div class="side-meta" id="sideMeta">—</div>
       <button id="logoutBtn" class="logout" type="button">退出</button>
     </aside>
+
     <main class="main">
       <header class="top">
         <div>
           <h2 id="pageTitle">总览</h2>
+          <p class="top-sub" id="pageSub">服务状态 · 快捷操作 · 健康检查</p>
         </div>
         <div class="top-right">
+          <label class="auto-refresh">
+            <input type="checkbox" id="autoRefresh" />
+            自动刷新
+          </label>
+          <span class="muted" id="lastRefresh">—</span>
           <button type="button" class="btn ghost" id="refreshBtn">刷新</button>
           <span class="badge" id="aliveBadge">检测中…</span>
         </div>
       </header>
 
+      <!-- 总览：运维指挥台 -->
       <section id="tab-overview" class="panel">
+        <div class="health-banner" id="healthBanner"></div>
+
         <div class="cards" id="statCards"></div>
-        <div class="grid-2">
+
+        <div class="grid-3">
+          <div class="box">
+            <div class="box-h-row">
+              <div class="box-h">快捷开关</div>
+              <span class="muted" id="quickTip"></span>
+            </div>
+            <div class="quick-switches">
+              <label class="switch-card">
+                <span>
+                  <strong>维护模式</strong>
+                  <small>全站暂停聊天与生图</small>
+                </span>
+                <input type="checkbox" id="quickMaintenance" />
+              </label>
+              <label class="switch-card">
+                <span>
+                  <strong>暂停对话</strong>
+                  <small>仅停呆呆 AI</small>
+                </span>
+                <input type="checkbox" id="quickBlockChat" />
+              </label>
+              <label class="switch-card">
+                <span>
+                  <strong>暂停生图</strong>
+                  <small>仅停呆呆 Image</small>
+                </span>
+                <input type="checkbox" id="quickBlockImage" />
+              </label>
+            </div>
+            <div class="toolbar wrap">
+              <button type="button" class="btn" id="gotoOps">改密钥 / 域名</button>
+              <button type="button" class="btn ghost" id="gotoProbe">连通探测</button>
+              <button type="button" class="btn ghost" id="probeAllBtn">一键全探</button>
+            </div>
+          </div>
+
+          <div class="box">
+            <div class="box-h">健康检查清单</div>
+            <div class="checklist" id="healthList"></div>
+          </div>
+
+          <div class="box">
+            <div class="box-h-row">
+              <div class="box-h">最近错误</div>
+              <button type="button" class="btn ghost sm" id="gotoErrors">全部</button>
+            </div>
+            <div class="mini-list" id="recentErrors"></div>
+          </div>
+        </div>
+
+        <div class="grid-2" style="margin-top:12px;">
           <div class="box">
             <div class="box-h">近 24 小时请求走势</div>
             <div class="bars" id="hourlyBars"></div>
@@ -55,13 +117,88 @@
             <div class="kv" id="sysInfo"></div>
           </div>
         </div>
+
         <div class="note" id="announceNote"></div>
       </section>
 
+      <!-- 运维配置：密钥 + 设置 + 能力 -->
+      <section id="tab-ops" class="panel hidden">
+        <div class="ops-grid">
+          <div class="box form-box">
+            <div class="box-h">运行开关</div>
+            <p class="hint">改完点保存才会生效（总览里的快捷开关会立刻保存）。</p>
+            <label class="switch-row"><input type="checkbox" id="setMaintenance" /> 维护模式</label>
+            <label class="switch-row"><input type="checkbox" id="setBlockChat" /> 暂停对话</label>
+            <label class="switch-row"><input type="checkbox" id="setBlockImage" /> 暂停生图</label>
+            <label class="field">限流（次 / 分钟）
+              <input id="setRate" type="number" min="10" max="5000" />
+            </label>
+            <label class="field">小程序对接域名
+              <div class="input-row">
+                <input id="setApiBase" type="text" placeholder="https://你的云托管域名" />
+                <button type="button" class="btn ghost sm" id="copyApiBase">复制</button>
+              </div>
+            </label>
+            <label class="field">维护提示文案
+              <input id="setMaintMsg" type="text" maxlength="200" placeholder="呆呆 AI 正在升级维护…" />
+            </label>
+            <label class="field">用户可见公告
+              <textarea id="setAnnounce" rows="3" maxlength="500"></textarea>
+            </label>
+            <label class="field">站长备注（仅后台）
+              <textarea id="setNotes" rows="3" maxlength="2000"></textarea>
+            </label>
+            <button type="button" class="btn" id="saveSettings">保存设置</button>
+          </div>
+
+          <div class="stack">
+            <div class="box form-box">
+              <div class="box-h">能力密钥</div>
+              <p class="hint">密钥只存本服务 data 目录，界面只显示脱敏后缀。留空表示不改动。</p>
+              <label class="field">呆呆 AI
+                <input id="secChat" type="password" placeholder="粘贴新密钥，留空不修改" autocomplete="off" />
+              </label>
+              <p class="status-line" id="secChatHint">未配置</p>
+              <label class="field">呆呆 Image
+                <input id="secImage" type="password" placeholder="粘贴新密钥，留空不修改" autocomplete="off" />
+              </label>
+              <p class="status-line" id="secImageHint">未配置</p>
+              <div class="toolbar wrap">
+                <button type="button" class="btn" id="saveSecrets">保存密钥</button>
+                <button type="button" class="btn danger" id="clearChatKey">清除对话密钥</button>
+                <button type="button" class="btn danger" id="clearImageKey">清除生图密钥</button>
+              </div>
+            </div>
+
+            <div class="box">
+              <div class="box-h">能力状态</div>
+              <table class="table">
+                <thead><tr><th>能力</th><th>状态</th><th>说明</th></tr></thead>
+                <tbody id="svcBody"></tbody>
+              </table>
+            </div>
+
+            <div class="box">
+              <div class="box-h">环境与配置摘要</div>
+              <div class="kv" id="envInfo"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 访问日志 -->
       <section id="tab-logs" class="panel hidden">
-        <div class="toolbar">
-          <button type="button" class="btn" id="reloadLogs">刷新日志</button>
+        <div class="toolbar wrap">
+          <input class="filter-input" id="logFilter" type="search" placeholder="筛选路径 / IP / 方法…" />
+          <select id="logStatus" class="filter-select">
+            <option value="all">全部状态</option>
+            <option value="2xx">成功 2xx</option>
+            <option value="4xx">客户端错 4xx</option>
+            <option value="5xx">服务端错 5xx</option>
+          </select>
+          <button type="button" class="btn ghost" id="reloadLogs">刷新</button>
           <button type="button" class="btn danger" id="clearLogs">清空日志</button>
+          <span class="muted" id="logCount"></span>
         </div>
         <div class="table-wrap">
           <table class="table compact">
@@ -73,9 +210,12 @@
         </div>
       </section>
 
+      <!-- 错误日志 -->
       <section id="tab-errors" class="panel hidden">
-        <div class="toolbar">
-          <button type="button" class="btn" id="reloadErrors">刷新错误</button>
+        <div class="toolbar wrap">
+          <input class="filter-input" id="errFilter" type="search" placeholder="筛选来源 / 信息…" />
+          <button type="button" class="btn ghost" id="reloadErrors">刷新</button>
+          <span class="muted" id="errCount"></span>
         </div>
         <div class="table-wrap">
           <table class="table compact">
@@ -87,103 +227,60 @@
         </div>
       </section>
 
-      <section id="tab-services" class="panel hidden">
-        <div class="box">
-          <div class="box-h">能力状态</div>
-          <table class="table">
-            <thead><tr><th>能力</th><th>状态</th><th>说明</th></tr></thead>
-            <tbody id="svcBody"></tbody>
-          </table>
-        </div>
-        <div class="box" style="margin-top:16px;">
-          <div class="box-h">环境变量（仅显示是否配置 / 脱敏）</div>
-          <div class="kv" id="envInfo"></div>
-        </div>
-      </section>
-
-      <section id="tab-settings" class="panel hidden">
-        <div class="box form-box">
-          <div class="box-h">运行开关</div>
-          <label class="switch-row"><input type="checkbox" id="setMaintenance" /> 维护模式</label>
-          <label class="switch-row"><input type="checkbox" id="setBlockChat" /> 暂停对话</label>
-          <label class="switch-row"><input type="checkbox" id="setBlockImage" /> 暂停生图</label>
-          <label class="field">限流 / 分钟
-            <input id="setRate" type="number" min="10" max="5000" />
-          </label>
-          <label class="field">小程序对接域名
-            <input id="setApiBase" type="text" placeholder="https://你的云托管域名" />
-          </label>
-          <label class="field">维护提示
-            <input id="setMaintMsg" type="text" maxlength="200" placeholder="呆呆 AI 正在升级维护…" />
-          </label>
-          <label class="field">公告
-            <textarea id="setAnnounce" rows="3" maxlength="500"></textarea>
-          </label>
-          <label class="field">备注
-            <textarea id="setNotes" rows="4" maxlength="2000"></textarea>
-          </label>
-          <button type="button" class="btn" id="saveSettings">保存设置</button>
-          <p class="muted" id="settingsTip"></p>
-        </div>
-
-        <div class="box form-box" style="margin-top:16px;">
-          <div class="box-h">密钥</div>
-          <label class="field">呆呆 AI
-            <input id="secChat" type="password" placeholder="留空不修改" autocomplete="off" />
-          </label>
-          <p class="muted" id="secChatHint">未配置</p>
-          <label class="field">呆呆 Image
-            <input id="secImage" type="password" placeholder="留空不修改" autocomplete="off" />
-          </label>
-          <p class="muted" id="secImageHint">未配置</p>
-          <div class="toolbar">
-            <button type="button" class="btn" id="saveSecrets">保存密钥</button>
-            <button type="button" class="btn danger" id="clearChatKey">清除对话密钥</button>
-            <button type="button" class="btn danger" id="clearImageKey">清除生图密钥</button>
-          </div>
-          <p class="muted" id="secretsTip"></p>
-        </div>
-      </section>
-
+      <!-- 连通探测 -->
       <section id="tab-probe" class="panel hidden">
+        <div class="toolbar wrap">
+          <button type="button" class="btn" id="probeAllBtn2">一键探测全部</button>
+          <span class="muted">先确认密钥与微信环境变量已配好，再测连通。</span>
+        </div>
         <div class="cards probe-cards">
-          <div class="box">
-            <div class="box-h">呆呆 AI</div>
-            <button type="button" class="btn" data-probe="chat">探测</button>
+          <div class="box probe-box" id="probeBoxChat">
+            <div class="box-h-row">
+              <div class="box-h">呆呆 AI</div>
+              <span class="pill" id="probePillChat">未测</span>
+            </div>
+            <p class="hint">实际发一条极短对话，验证密钥与上游可达。</p>
+            <button type="button" class="btn" data-probe="chat">探测对话</button>
             <pre class="probe-out" id="probeChat">尚未探测</pre>
           </div>
-          <div class="box">
-            <div class="box-h">呆呆 Image</div>
-            <button type="button" class="btn" data-probe="image">探测</button>
+          <div class="box probe-box" id="probeBoxImage">
+            <div class="box-h-row">
+              <div class="box-h">呆呆 Image</div>
+              <span class="pill" id="probePillImage">未测</span>
+            </div>
+            <p class="hint">检查生图密钥是否已配置（不实际扣费出图）。</p>
+            <button type="button" class="btn" data-probe="image">探测生图配置</button>
             <pre class="probe-out" id="probeImage">尚未探测</pre>
           </div>
-          <div class="box">
-            <div class="box-h">小程序登录</div>
-            <button type="button" class="btn" data-probe="wechat">探测</button>
+          <div class="box probe-box" id="probeBoxWechat">
+            <div class="box-h-row">
+              <div class="box-h">小程序登录</div>
+              <span class="pill" id="probePillWechat">未测</span>
+            </div>
+            <p class="hint">检查 WECHAT_APPID / WECHAT_SECRET 是否齐全。</p>
+            <button type="button" class="btn" data-probe="wechat">探测登录配置</button>
             <pre class="probe-out" id="probeWechat">尚未探测</pre>
           </div>
         </div>
       </section>
 
-      <section id="tab-routes" class="panel hidden">
-        <table class="table">
-          <thead><tr><th>方法</th><th>路径</th><th>说明</th></tr></thead>
-          <tbody id="routesBody"></tbody>
-        </table>
-      </section>
-
+      <!-- 上线检查 -->
       <section id="tab-guide" class="panel hidden">
         <div class="guide">
-          <h3>上线清单</h3>
-          <ol>
-            <li><code>ADMIN_PASSWORD</code>、<code>WECHAT_APPID</code>、<code>WECHAT_SECRET</code></li>
-            <li>后台填写呆呆 AI / 呆呆 Image 密钥与对接域名</li>
-            <li>小程序 <code>apiBase</code> 与合法域名</li>
-          </ol>
+          <h3>上线检查</h3>
+          <p class="hint">根据当前配置自动勾选。未通过项优先处理。</p>
+          <div class="checklist big" id="guideList"></div>
+          <h3>接口清单</h3>
+          <table class="table">
+            <thead><tr><th>方法</th><th>路径</th><th>说明</th></tr></thead>
+            <tbody id="routesBody"></tbody>
+          </table>
         </div>
       </section>
     </main>
   </div>
+
+  <div id="toast" class="toast hidden"></div>
   <script src="./admin.js"></script>
 </body>
 </html>
