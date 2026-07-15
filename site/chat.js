@@ -524,15 +524,19 @@
 
   async function pollImageJob(jobId, onTick) {
     const started = Date.now();
-    const maxMs = 180000;
+    const maxMs = 240000;
+    let first = true;
     while (Date.now() - started < maxMs) {
-      await new Promise((r) => setTimeout(r, 2000));
+      if (!first) await new Promise((r) => setTimeout(r, 2000));
+      first = false;
       const res = await fetch(`/api/image/job/${encodeURIComponent(jobId)}`);
       const data = await res.json().catch(() => ({}));
       const job = data.job || {};
       if (typeof onTick === "function") onTick(job);
-      if (job.status === "done" && job.image) return job;
-      if (job.status === "error") {
+      if ((job.status === "done" || job.status === "completed") && job.image) {
+        return job;
+      }
+      if (job.status === "error" || job.status === "failed") {
         const err = new Error(job.error || "生图失败");
         err.job = job;
         throw err;
@@ -552,11 +556,15 @@
         body: JSON.stringify({ prompt, size: state.imageSize }),
       });
       const data = await res.json().catch(() => ({}));
+      const jobId = data.jobId || data.job_id || data.id;
       if (data.image) {
         updateMsg(aiId, { loading: false, content: "", image: data.image });
-      } else if (data.pending && data.jobId) {
+      } else if (data.pending || jobId) {
+        if (!jobId) {
+          throw new Error("生图任务已受理但未返回 jobId，请重新部署后端");
+        }
         updateMsg(aiId, { loading: true, content: "呆呆 AI 作图中，请稍候…" });
-        const job = await pollImageJob(data.jobId, () => {
+        const job = await pollImageJob(jobId, () => {
           updateMsg(aiId, { loading: true, content: "呆呆 AI 作图中，请稍候…" });
         });
         updateMsg(aiId, { loading: false, content: "", image: job.image });
@@ -564,7 +572,11 @@
         const rawMsg = data?.error?.message || "";
         const errId = data?.error?.id || "";
         const shown = [
-          friendlyError(rawMsg) || rawMsg || `生图失败（HTTP ${res.status || "?"}）`,
+          friendlyError(rawMsg) ||
+            rawMsg ||
+            (res.status === 200
+              ? "生图接口返回异常（HTTP 200 但无图片）。请强制刷新页面（Ctrl+F5）后再试"
+              : `生图失败（HTTP ${res.status || "?"}）`),
           errId ? `错误编号：${errId}` : "",
           "请到管理后台 → 错误日志 查看明细",
         ]
@@ -575,7 +587,7 @@
           message: rawMsg || shown,
           status: res.status,
           path: "/api/image",
-          detail: `prompt=${prompt.slice(0, 100)};id=${errId}`,
+          detail: `prompt=${prompt.slice(0, 100)};keys=${Object.keys(data || {}).join(",")};id=${errId}`,
         });
         updateMsg(aiId, { loading: false, content: shown });
       }

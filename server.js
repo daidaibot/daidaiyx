@@ -1011,9 +1011,11 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
     res.json({
       ok: true,
       pending: true,
+      status: "pending",
       jobId: job.id,
+      id: job.id,
       product: "呆呆 Image",
-      message: "生图任务已提交，请轮询结果",
+      message: "生图任务已提交，请轮询 /api/image/job/:id",
     });
     setImmediate(async () => {
       try {
