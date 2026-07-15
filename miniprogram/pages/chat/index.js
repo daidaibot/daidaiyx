@@ -1346,7 +1346,7 @@ Page({
           this.updateMessage(aiId, {
             loading: false,
             content: '',
-            image: data.image,
+            image: this.absoluteImageUrl(data.image),
           });
         } else {
           const rawMsg =
