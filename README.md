@@ -39,3 +39,5 @@ DAIDAI_IMAGE_KEY=sk-你的密钥
 同页可看「服务器出口 IP」（白名单用，账号密码方式一般不需要）。
 
 失败会自动换下一个代理（默认最多试 3 个，可用 `DAIDAI_PROXY_TRIES` 调整）。
+
+仓库已内置 `config/proxies.builtin.txt`（约 100 条 Webshare），部署后自动加载；后台运维页也可覆盖保存。

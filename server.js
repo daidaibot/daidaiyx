@@ -386,9 +386,17 @@ app.put("/api/admin/secrets", adminAuth, (req, res) => {
 
 app.get("/api/admin/proxies", adminAuth, (_req, res) => {
   const file = path.join(ops.DATA_DIR, "proxies.txt");
+  const builtin = path.join(__dirname, "config", "proxies.builtin.txt");
   let text = "";
+  let source = "";
   try {
-    if (fs.existsSync(file)) text = fs.readFileSync(file, "utf8");
+    if (fs.existsSync(file) && fs.readFileSync(file, "utf8").trim()) {
+      text = fs.readFileSync(file, "utf8");
+      source = "data/proxies.txt";
+    } else if (fs.existsSync(builtin)) {
+      text = fs.readFileSync(builtin, "utf8");
+      source = "config/proxies.builtin.txt（部署内置）";
+    }
   } catch (e) {
     console.error("read proxies failed:", e.message);
   }
@@ -396,7 +404,7 @@ app.get("/api/admin/proxies", adminAuth, (_req, res) => {
     ok: true,
     count: proxyCount(),
     text,
-    file: "data/proxies.txt",
+    file: source || "data/proxies.txt",
     hint: "每行 host:port:user:pass（Webshare）或 http://user:pass@host:port",
   });
 });
