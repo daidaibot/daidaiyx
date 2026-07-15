@@ -1,4 +1,4 @@
-<view class="root">
+<view class="root {{isWide ? 'is-wide' : ''}}">
   <view
     wx:if="{{showSplash}}"
     class="splash {{splashLeaving ? 'is-leaving' : ''}} {{splashHidden ? 'is-hidden' : ''}}"

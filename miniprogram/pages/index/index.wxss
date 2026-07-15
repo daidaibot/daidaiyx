@@ -595,3 +595,55 @@
   opacity: 1;
   transform: translateY(0);
 }
+
+/* —— 平板 / 电脑宽屏 —— */
+.root.is-wide {
+  background: linear-gradient(180deg, #f7fcf9 0%, #eef8f1 45%, #e4f2ea 100%);
+}
+
+.root.is-wide .nav-inner {
+  max-width: 960px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.root.is-wide .hero {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.root.is-wide .brand-logo--hero {
+  height: 112rpx;
+}
+
+.root.is-wide .hero-tagline {
+  font-size: 40rpx;
+}
+
+.root.is-wide .section {
+  max-width: 920px;
+}
+
+.root.is-wide .about-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24rpx;
+}
+
+.root.is-wide .contact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24rpx;
+}
+
+.root.is-wide .ai-transit-sheet {
+  left: 50%;
+  right: auto;
+  width: 100%;
+  max-width: 840px;
+  transform: translate3d(-50%, 110%, 0);
+}
+
+.root.is-wide .ai-transit.show .ai-transit-sheet {
+  transform: translate3d(-50%, 0, 0);
+}

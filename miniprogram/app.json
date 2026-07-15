@@ -8,7 +8,8 @@
     "navigationBarTitleText": "呆呆网络",
     "navigationBarBackgroundColor": "#ffffff",
     "navigationBarTextStyle": "black",
-    "backgroundColor": "#e8f5ec"
+    "backgroundColor": "#e8f5ec",
+    "resizable": true
   },
   "style": "v2",
   "sitemapLocation": "sitemap.json"

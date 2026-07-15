@@ -1,7 +1,10 @@
+const { getLayout } = require('../../utils/layout');
+
 Page({
   data: {
     statusBarHeight: 20,
     heroPadTop: 100,
+    isWide: false,
     showSplash: true,
     splashLeaving: false,
     splashHidden: false,
@@ -24,18 +27,25 @@ Page({
   _toastTimer: null,
   _opening: false,
 
-  onLoad() {
-    const info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
-    const statusBarHeight = info.statusBarHeight || 20;
+  applyLayout() {
+    const layout = getLayout();
     this.setData({
-      statusBarHeight,
-      heroPadTop: statusBarHeight + 72,
+      statusBarHeight: layout.statusBarHeight,
+      heroPadTop: layout.heroPadTop,
+      isWide: layout.isWide,
       year: new Date().getFullYear(),
     });
+  },
+
+  onLoad() {
+    this.applyLayout();
+    this._onResize = () => this.applyLayout();
+    if (wx.onWindowResize) wx.onWindowResize(this._onResize);
     this._timer = setTimeout(() => this.enterSite(), 3200);
   },
 
   onShow() {
+    this.applyLayout();
     if (this.data.aiOpening) {
       this.setData({ aiOpening: false, aiPress: false });
       this._opening = false;
@@ -45,6 +55,7 @@ Page({
   onUnload() {
     if (this._timer) clearTimeout(this._timer);
     if (this._toastTimer) clearTimeout(this._toastTimer);
+    if (this._onResize && wx.offWindowResize) wx.offWindowResize(this._onResize);
   },
 
   enterSite() {

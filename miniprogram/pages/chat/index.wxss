@@ -1089,3 +1089,115 @@
   color: #f53f3f;
   border-radius: 12rpx;
 }
+
+/* —— 平板 / 电脑宽屏适配 —— */
+.page.is-wide {
+  background: #e8eaed;
+}
+
+.page.is-wide .nav,
+.page.is-wide .msgs,
+.page.is-wide .composer,
+.page.is-wide .img-bar {
+  width: 100%;
+  max-width: 840px;
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
+}
+
+.page.is-wide .nav,
+.page.is-wide .composer,
+.page.is-wide .img-bar {
+  background: #fff;
+}
+
+.page.is-wide .msgs {
+  background: #f7f8fa;
+}
+
+.page.is-wide .skill-grid {
+  grid-template-columns: repeat(6, 1fr);
+  max-width: 100%;
+}
+
+.page.is-wide .welcome {
+  padding-top: 48rpx;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.page.is-wide .bubble-wrap {
+  max-width: 68%;
+}
+
+.page.is-wide .bubble-img {
+  max-width: 420px;
+}
+
+.page.is-wide .drawer {
+  width: 360px;
+  max-width: 42%;
+}
+
+.page.is-pc .drawer {
+  width: 320px;
+  max-width: 320px;
+}
+
+/* 底部面板在宽屏下居中，对齐主内容列 */
+.page.is-wide .sheet,
+.page.is-wide .panel,
+.page.is-wide .create-panel,
+.page.is-wide .login-sheet {
+  left: 50%;
+  right: auto;
+  width: 100%;
+  max-width: 840px;
+  margin: 0;
+  transform: translate(-50%, 110%);
+}
+
+.page.is-wide .sheet.show,
+.page.is-wide .panel.show,
+.page.is-wide .create-panel.show,
+.page.is-wide .login-sheet.show {
+  transform: translate(-50%, 0);
+}
+
+.page.is-wide .login-sheet {
+  max-width: 480px;
+}
+
+.page.is-wide .panel-grid {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.page.is-wide .sheet-grid {
+  grid-template-columns: repeat(4, 1fr);
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.page.is-wide .login-sheet,
+.page.is-wide .login-card {
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.page.is-wide .login-gate {
+  align-items: center;
+}
+
+.page.is-pc .nav-inner {
+  height: 96rpx;
+}
+
+.page.is-pc .composer-box {
+  padding: 12rpx 14rpx;
+}
+
+.page.is-pc .input {
+  height: 72rpx;
+  font-size: 30rpx;
+}

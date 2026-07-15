@@ -575,3 +575,48 @@ button {
   opacity: 1;
   transform: translateY(0);
 }
+
+@media (min-width: 600px) {
+  .nav-inner {
+    max-width: 960px;
+  }
+
+  .hero {
+    max-width: 720px;
+    margin: 0 auto;
+  }
+
+  .brand-logo--hero {
+    height: 56px;
+  }
+
+  .hero-tagline {
+    font-size: 20px;
+  }
+
+  .section {
+    max-width: 920px;
+  }
+
+  .about-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .contact-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .ai-transit-sheet {
+    left: 50%;
+    right: auto;
+    width: 100%;
+    max-width: 840px;
+    transform: translate3d(-50%, 110%, 0);
+  }
+
+  .ai-transit.show .ai-transit-sheet {
+    transform: translate3d(-50%, 0, 0);
+  }
+}

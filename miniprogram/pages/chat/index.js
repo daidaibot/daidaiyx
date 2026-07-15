@@ -20,6 +20,7 @@ const {
   removeSession,
   clearHistory,
 } = require('../../utils/history');
+const { getLayout } = require('../../utils/layout');
 
 const SKILLS = [
   {
@@ -164,6 +165,8 @@ function emptyForm() {
 Page({
   data: {
     statusBarHeight: 20,
+    isWide: false,
+    isPc: false,
     skills: SKILLS,
     builtinMasks: BUILTIN_MASKS,
     customMasks: [],
@@ -212,9 +215,19 @@ Page({
 
   _timer: null,
 
+  applyLayout() {
+    const layout = getLayout();
+    this.setData({
+      statusBarHeight: layout.statusBarHeight,
+      isWide: layout.isWide,
+      isPc: layout.isPc,
+    });
+  },
+
   onLoad() {
-    const info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
-    this.setData({ statusBarHeight: info.statusBarHeight || 20 });
+    this.applyLayout();
+    this._onResize = () => this.applyLayout();
+    if (wx.onWindowResize) wx.onWindowResize(this._onResize);
     this.refreshAuth();
     this.refreshMasks();
     this.refreshHistory();
@@ -225,18 +238,20 @@ Page({
     setTimeout(() => this.setData({ entered: true }), 30);
   },
 
+  onUnload() {
+    if (this._onResize && wx.offWindowResize) wx.offWindowResize(this._onResize);
+    this.saveCurrentSession();
+    if (this._timer) clearInterval(this._timer);
+  },
+
   onShow() {
+    this.applyLayout();
     this.refreshAuth();
     this.refreshHistory();
   },
 
   onHide() {
     this.saveCurrentSession();
-  },
-
-  onUnload() {
-    this.saveCurrentSession();
-    if (this._timer) clearInterval(this._timer);
   },
 
   refreshAuth() {
