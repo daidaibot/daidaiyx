@@ -140,17 +140,31 @@ function buildHealth(data) {
         : "缺少环境变量，小程序无法真登录",
     },
     {
-      ok: Boolean(data.upstream?.imageBase && !/api\.openai\.com$/i.test(data.upstream.imageBase)),
-      level:
-        data.upstream?.imageBase && !/api\.openai\.com$/i.test(data.upstream.imageBase)
-          ? "ok"
-          : "warn",
-      title: "生图中转地址",
-      tip: data.upstream?.imageBase
-        ? /api\.openai\.com$/i.test(data.upstream.imageBase)
-          ? `${data.upstream.imageBase}（国内直连常失败，请设 DAIDAI_IMAGE_BASE_URL）`
-          : data.upstream.imageBase
-        : "未读取到上游地址",
+      ok: Boolean(
+        data.upstream?.imageBase &&
+          (/api\.openai\.com$/i.test(data.upstream.imageBase)
+            ? data.outboundProxy?.enabled
+            : true)
+      ),
+      level: (() => {
+        const base = data.upstream?.imageBase || "";
+        if (!base) return "warn";
+        if (/api\.openai\.com$/i.test(base)) {
+          return data.outboundProxy?.enabled ? "ok" : "warn";
+        }
+        return "ok";
+      })(),
+      title: "生图上游",
+      tip: (() => {
+        const base = data.upstream?.imageBase || "";
+        if (!base) return "未读取到上游，请设 DAIDAI_IMAGE_BASE_URL=https://api.openai.com";
+        if (/api\.openai\.com$/i.test(base)) {
+          return data.outboundProxy?.enabled
+            ? `${base} · 代理池 ${data.outboundProxy.count || 0} 条`
+            : `${base}（官方 API，请在运维配置粘贴代理池，否则国内常不通）`;
+        }
+        return `${base}（自定义中转）`;
+      })(),
     },
     {
       ok: Boolean(data.publicApiBase || s.publicApiBase),

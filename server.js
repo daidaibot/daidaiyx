@@ -18,12 +18,12 @@ const CHAT_BASE_URL = (
 const DEFAULT_MODEL =
   process.env.DAIDAI_AI_MODEL || process.env.CHAT_MODEL || "deepseek-chat";
 
-/** 生图上游（内部）；对外一律称「呆呆 Image」；默认走呆呆中转，避免国内直连失败 */
+/** 生图上游（内部）；对外一律称「呆呆 Image」；默认直连官方 OpenAI（配合代理池） */
 const IMAGE_BASE_URL = (
   process.env.DAIDAI_IMAGE_BASE_URL ||
   process.env.OPENAI_IMAGE_BASE_URL ||
   process.env.OPENAI_API_BASE ||
-  "https://openai.dai520.cn"
+  "https://api.openai.com"
 ).replace(/\/$/, "");
 const IMAGE_MODEL =
   process.env.DAIDAI_IMAGE_MODEL || process.env.IMAGE_MODEL || "gpt-image-2";
@@ -279,6 +279,11 @@ app.get("/api/admin/overview", adminAuth, (_req, res) => {
       imageBase: IMAGE_BASE_URL,
       chatModel: DEFAULT_MODEL,
       imageModel: IMAGE_MODEL,
+    },
+    outboundProxy: {
+      enabled: hasOutboundProxy(),
+      masked: hasOutboundProxy() ? maskProxy() : "",
+      count: proxyCount(),
     },
     models: {
       chat: "呆呆 AI",
@@ -571,7 +576,7 @@ app.post("/api/admin/probe", adminAuth, async (req, res) => {
           model: IMAGE_MODEL,
         });
       }
-      // 用 /v1/models 真连中转（不扣生图费），验证密钥+网络
+      // 用 /v1/models 真连上游（不扣生图费），验证密钥+代理+网络
       const upstream = await outboundFetch(`${IMAGE_BASE_URL}/v1/models`, {
         method: "GET",
         headers: { Authorization: `Bearer ${imageKey}` },
@@ -605,7 +610,7 @@ app.post("/api/admin/probe", adminAuth, async (req, res) => {
         ms: Date.now() - started,
         status: upstream.status,
         preview: upstream.ok
-          ? `中转可达 · ${IMAGE_BASE_URL} · 模型列表 ${modelCount} 项 · 目标模型 ${IMAGE_MODEL}`
+          ? `上游可达 · ${IMAGE_BASE_URL} · 模型列表 ${modelCount} 项 · 目标模型 ${IMAGE_MODEL}`
           : "",
         error: errMsg,
         base: IMAGE_BASE_URL,
@@ -1117,7 +1122,7 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
           error: sanitizePublicError(
             message,
             status === 504
-              ? "生图超时：中转等待过久。若账单已扣费，多为网关超时，请升级中转时长或稍后重试"
+              ? "生图超时：上游等待过久。若账单已扣费，多为网关超时，请检查代理或稍后重试"
               : "生图失败"
           ),
           ms: Date.now() - job.createdAt,
@@ -1162,8 +1167,8 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
         sanitizePublicError(
           message,
           status === 504
-            ? "生图超时：中转或网关等待过久，上游可能已扣费"
-            : "生图代理失败，请检查中转与密钥"
+            ? "生图超时：上游或网关等待过久，上游可能已扣费"
+            : "生图失败，请检查代理池、上游与密钥"
         ),
         res,
         { base: IMAGE_BASE_URL, model: IMAGE_MODEL }
@@ -1383,7 +1388,7 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
     );
     res.status(502).json({
       error: {
-        message: sanitizePublicError(message, "改图代理失败，请检查中转与密钥"),
+        message: sanitizePublicError(message, "改图失败，请检查代理池、上游与密钥"),
       },
     });
   }

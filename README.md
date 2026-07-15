@@ -12,26 +12,30 @@
 - `/chat.html` 豆包风呆呆 AI
 - `/admin/` 管理后台
 
-推荐部署：**微信云托管**。环境变量（推荐用呆呆命名，更新代码不会丢）：
+生图对接说明见根目录 **[对接文档.txt](./对接文档.txt)**（官方 OpenAI + 代理池）。
+
+## 微信云托管环境变量
 
 | 变量名 | 用途 |
 |--------|------|
 | `ADMIN_PASSWORD` | 管理后台密码 |
 | `WECHAT_APPID` / `WECHAT_SECRET` | 小程序微信登录 |
 | `DAIDAI_AI_KEY` | 呆呆 AI（对话）密钥 |
-| `DAIDAI_IMAGE_KEY` | 呆呆 Image（生图）密钥 |
-| `DAIDAI_IMAGE_BASE_URL` | 生图中转地址，如 `https://openai.dai520.cn`（不要加 `/v1`） |
+| `DAIDAI_IMAGE_KEY` | 呆呆 Image（生图）密钥，填 OpenAI `sk-` |
+| `DAIDAI_IMAGE_BASE_URL` | **`https://api.openai.com`**（不要加 `/v1`） |
 | `DAIDAI_API_BASE` | 小程序对接域名（云托管公网地址，不要末尾 `/`，不要 `/admin`） |
-| `DAIDAI_IMAGE_PROXY_ASYNC` | 填 `1`：走 Cloudflare 中转异步（一般不如代理池省事） |
-| `DAIDAI_HTTPS_PROXY` | 国外代理池地址，如 `http://user:pass@主机:端口`（生图出站走代理） |
+| `DAIDAI_HTTPS_PROXY` / 代理池文件 | 国外出口；推荐后台粘贴 Webshare 列表 |
 
-**推荐用 Webshare 代理池时：**
+**不要再设** `DAIDAI_IMAGE_PROXY_ASYNC=1`（旧 Cloudflare 异步中转）。
 
-1. 云托管环境变量：
-   - `DAIDAI_IMAGE_BASE_URL=https://api.openai.com`
-   - `DAIDAI_IMAGE_KEY=sk-...`
-   - 不要开 `DAIDAI_IMAGE_PROXY_ASYNC`
-2. 部署后打开管理后台 → 运维配置 → **出站代理池**，把 Webshare txt（`IP:端口:用户:密码`）整份粘贴保存  
-   或把文件放到持久盘 `/app/data/proxies.txt`
+### 推荐生图配置
+
+```
+DAIDAI_IMAGE_BASE_URL=https://api.openai.com
+DAIDAI_IMAGE_KEY=sk-你的密钥
+```
+
+部署后：管理后台 → 运维配置 → **出站代理池**，粘贴 Webshare `IP:端口:用户:密码` 全文并保存。  
+同页可看「服务器出口 IP」（白名单用，账号密码方式一般不需要）。
 
 失败会自动换下一个代理（默认最多试 3 个，可用 `DAIDAI_PROXY_TRIES` 调整）。
