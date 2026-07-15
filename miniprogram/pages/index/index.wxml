@@ -1,24 +1,38 @@
-<!-- 呆呆网络 · 风格参考 dai520.cn -->
 <view class="root">
-  <!-- 开场：淡绿欢迎层，可点可自动消失 -->
   <view
     wx:if="{{showSplash}}"
-    class="splash {{splashLeaving ? 'leave' : ''}}"
+    class="splash {{splashLeaving ? 'is-leaving' : ''}} {{splashHidden ? 'is-hidden' : ''}}"
     bindtap="enterSite"
   >
-    <view class="splash-label">欢迎来访</view>
-    <view class="splash-brand">呆呆</view>
-    <view class="splash-line"></view>
+    <view class="splash-scene">
+      <view class="splash-ring"></view>
+      <view class="splash-ring splash-ring--delay"></view>
+      <view class="splash-label">欢迎来访</view>
+      <view class="splash-name">
+        <image
+          class="brand-logo brand-logo--splash"
+          src="/assets/dai/dai-logo.png"
+          mode="heightFix"
+        />
+      </view>
+      <view class="splash-line"></view>
+    </view>
     <view class="splash-skip">点击任意处进入</view>
   </view>
 
-  <view class="page">
+  <view class="page-wrap {{pageReady ? 'ready' : ''}}">
     <view class="nav" style="padding-top: {{statusBarHeight}}px;">
       <view class="nav-inner">
-        <view class="nav-logo">呆呆</view>
+        <view class="nav-logo" data-id="hero" bindtap="scrollTo">
+          <image
+            class="brand-logo brand-logo--nav"
+            src="/assets/dai/dai-logo.png"
+            mode="heightFix"
+          />
+        </view>
         <view class="nav-links">
           <text class="nav-link" data-id="about" bindtap="scrollTo">关于</text>
-          <text class="nav-link" bindtap="goChat">开始</text>
+          <text class="nav-link" data-id="contact" bindtap="scrollTo">联系</text>
         </view>
       </view>
     </view>
@@ -26,47 +40,87 @@
     <scroll-view
       class="scroll"
       scroll-y
+      enhanced
+      show-scrollbar="{{false}}"
       scroll-into-view="{{scrollInto}}"
       scroll-with-animation
     >
       <view class="hero" id="hero" style="padding-top: {{heroPadTop}}px;">
-        <view class="hero-brand">呆呆网络</view>
-        <view class="hero-tagline">Happy every day</view>
-        <view class="hero-actions">
-          <view class="btn btn-primary" bindtap="goChat">进入呆呆 AI</view>
+        <view class="hero-signature hero-in" style="animation-delay: 0s;">
+          <image
+            class="brand-logo brand-logo--hero"
+            src="/assets/dai/dai-logo.png"
+            mode="heightFix"
+          />
+          <view class="hero-tagline">Happy every day</view>
+        </view>
+        <view class="hero-actions hero-in" style="animation-delay: 0.07s;">
+          <view class="btn btn-primary" data-id="contact" bindtap="scrollTo">联系我</view>
           <view class="btn btn-ghost" data-id="about" bindtap="scrollTo">了解更多</view>
         </view>
-        <view class="scroll-hint" data-id="about" bindtap="scrollTo">
-          <text class="scroll-text">下滑了解更多</text>
-          <text class="scroll-arrow">↓</text>
+        <view class="hero-ai hero-in" style="animation-delay: 0.14s;">
+          <view class="btn btn-ai {{aiPress ? 'press' : ''}}" bindtap="goAi">打开呆呆 AI</view>
+        </view>
+        <view class="hero-scroll-wrap">
+          <view class="hero-scroll-hint" data-id="about" bindtap="scrollTo">
+            <text class="hero-scroll-text">下滑了解更多</text>
+            <text class="hero-scroll-arrow">↓</text>
+          </view>
         </view>
       </view>
 
       <view class="section" id="about">
         <view class="section-label">关于</view>
-        <view class="section-title">关于呆呆</view>
+        <view class="section-title">关于我</view>
         <view class="about-grid">
-          <view class="glass-card" wx:for="{{cards}}" wx:key="title">
+          <view class="glass-card about-card" wx:for="{{cards}}" wx:key="title">
             <view class="card-icon">{{item.icon}}</view>
             <view class="card-title">{{item.title}}</view>
-            <view class="card-desc">{{item.desc}}</view>
+            <view class="card-desc">{{item.text}}</view>
           </view>
         </view>
       </view>
 
-      <view class="section" id="start">
-        <view class="section-label">开始</view>
-        <view class="section-title">联系与体验</view>
-        <view class="contact-sub">期待与你一起玩转 AI · 点下面进入对话</view>
-        <view class="glass-card start-card">
-          <view class="card-title">呆呆 AI</view>
-          <view class="card-desc">豆包风对话 · 马上开聊</view>
-          <view class="btn btn-primary start-btn" bindtap="goChat">立即进入</view>
+      <view class="section" id="contact">
+        <view class="section-label">联系</view>
+        <view class="section-title">联系方式</view>
+        <view class="contact-subtitle">期待与你的合作，随时欢迎联系</view>
+        <view class="contact-grid">
+          <view class="glass-card contact-card">
+            <view class="contact-icon wechat">
+              <text class="contact-icon-txt wechat-txt">微</text>
+            </view>
+            <view class="contact-h3">微信 WeChat</view>
+            <view class="contact-value">{{wechat}}</view>
+            <view class="copy-btn" data-text="{{wechat}}" bindtap="copyText">复制</view>
+          </view>
+          <view class="glass-card contact-card">
+            <view class="contact-icon qq">
+              <text class="contact-icon-txt qq-txt">Q</text>
+            </view>
+            <view class="contact-h3">QQ</view>
+            <view class="contact-value">{{qq}}</view>
+            <view class="copy-btn" data-text="{{qq}}" bindtap="copyText">复制</view>
+          </view>
         </view>
       </view>
 
-      <view class="footer">© {{year}} 呆呆网络 · Crafted with passion.</view>
+      <view class="footer">
+        <text>© {{year}} </text>
+        <image class="brand-logo brand-logo--footer" src="/assets/dai/dai-logo.png" mode="heightFix" />
+        <text> · Crafted with passion.</text>
+      </view>
       <view class="safe"></view>
     </scroll-view>
+  </view>
+
+  <view class="toast {{toastShow ? 'show' : ''}}">已复制到剪贴板</view>
+
+  <!-- 打开 AI 时的丝滑过渡层 -->
+  <view class="ai-transit {{aiOpening ? 'show' : ''}}">
+    <view class="ai-transit-sheet">
+      <view class="ai-transit-avatar">呆</view>
+      <view class="ai-transit-text">正在进入呆呆 AI</view>
+    </view>
   </view>
 </view>

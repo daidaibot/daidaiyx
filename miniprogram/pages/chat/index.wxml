@@ -1,12 +1,16 @@
-<view class="page">
+<view class="page {{entered ? 'entered' : ''}}">
   <view class="nav" style="padding-top: {{statusBarHeight}}px;">
     <view class="nav-inner">
-      <view class="back" bindtap="goBack">‹</view>
-      <view class="nav-center">
-        <view class="nav-title">呆呆 AI</view>
-        <view class="nav-sub">{{statusText}}</view>
+      <view class="menu-btn" bindtap="openDrawer">
+        <view class="menu-line"></view>
+        <view class="menu-line"></view>
+        <view class="menu-line"></view>
       </view>
-      <view class="nav-spacer"></view>
+      <view class="nav-center">
+        <view class="nav-title">{{navTitle}}</view>
+        <view class="nav-sub">{{navSub}}</view>
+      </view>
+      <view class="nav-right" bindtap="onNewChat">新对话</view>
     </view>
   </view>
 
@@ -19,11 +23,75 @@
     show-scrollbar="{{false}}"
   >
     <view class="msgs-pad">
+      <view wx:if="{{messages.length === 0}}" class="welcome">
+        <view class="welcome-avatar">{{welcomeEmoji}}</view>
+        <view class="welcome-hi">{{welcomeHi}}</view>
+        <view class="welcome-sub">{{welcomeSub}}</view>
+        <view wx:if="{{!loggedIn}}" class="guest-tip" bindtap="openLogin">
+          当前是游客模式 · 登录后即可使用
+        </view>
+
+        <view class="sec-head">
+          <text class="sec-title">快捷能力</text>
+        </view>
+        <view class="skill-grid">
+          <view
+            class="skill-chip {{activeSkill === item.id ? 'on' : ''}}"
+            wx:for="{{skills}}"
+            wx:key="id"
+            data-id="{{item.id}}"
+            bindtap="onSkill"
+          >
+            <text class="skill-chip-emoji">{{item.emoji}}</text>
+            <text class="skill-chip-name">{{item.name}}</text>
+          </view>
+        </view>
+
+        <view class="sec-head">
+          <text class="sec-title">角色面具</text>
+          <text class="sec-link" bindtap="openMaskPanel">全部 · 自定义</text>
+        </view>
+        <scroll-view class="mask-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+          <view class="mask-row">
+            <view class="mask-card create" bindtap="openMaskCreate">
+              <view class="mask-emoji">＋</view>
+              <view class="mask-name">创建面具</view>
+            </view>
+            <view
+              class="mask-card {{activeMask === item.id ? 'on' : ''}}"
+              wx:for="{{maskPreview}}"
+              wx:key="id"
+              data-id="{{item.id}}"
+              bindtap="onPickMask"
+            >
+              <view class="mask-emoji">{{item.emoji}}</view>
+              <view class="mask-name">{{item.name}}</view>
+              <view class="mask-desc">{{item.desc}}</view>
+            </view>
+          </view>
+        </scroll-view>
+      </view>
+
       <block wx:for="{{messages}}" wx:key="id">
         <view class="row {{item.role === 'user' ? 'mine' : 'ai'}}" id="m-{{item.id}}">
-          <view class="avatar {{item.role}}">{{item.role === 'user' ? '我' : '呆'}}</view>
-          <view class="bubble {{item.role}}">
-            <text class="bubble-text" user-select>{{item.content}}</text>
+          <view wx:if="{{item.role !== 'user'}}" class="avatar">{{welcomeEmoji}}</view>
+          <view class="bubble-wrap">
+            <view class="bubble {{item.role}}">
+              <text wx:if="{{item.content}}" class="bubble-text" user-select>{{item.content}}</text>
+              <image
+                wx:if="{{item.image}}"
+                class="bubble-img"
+                src="{{item.image}}"
+                mode="widthFix"
+                bindtap="previewImage"
+                data-src="{{item.image}}"
+              />
+              <view wx:if="{{item.loading}}" class="typing">
+                <view class="dot"></view>
+                <view class="dot"></view>
+                <view class="dot"></view>
+              </view>
+            </view>
           </view>
         </view>
       </block>
@@ -31,24 +99,54 @@
     </view>
   </scroll-view>
 
-  <view class="dock" wx:if="{{messages.length <= 1}}">
-    <view class="chips">
-      <view
-        class="chip"
-        wx:for="{{chips}}"
-        wx:key="id"
-        data-text="{{item.text}}"
-        bindtap="onChip"
-      >{{item.text}}</view>
-    </view>
+  <view class="img-bar" wx:if="{{activeSkill === 'image' || activeSkill === 'edit'}}">
+    <text class="img-bar-label">画幅</text>
+    <view
+      class="ratio {{imageSize === item.value ? 'on' : ''}}"
+      wx:for="{{sizes}}"
+      wx:key="value"
+      data-value="{{item.value}}"
+      bindtap="onSize"
+    >{{item.label}}</view>
   </view>
 
-  <view class="composer">
+  <view class="composer {{activeSkill === 'edit' ? 'edit-mode' : ''}}">
+    <view class="tag-row" wx:if="{{(activeSkill && activeSkill !== 'edit') || activeMask}}">
+      <view class="skill-tag" wx:if="{{activeSkill && activeSkill !== 'edit'}}" bindtap="clearSkill">
+        <text>{{skillLabel}}</text>
+        <text class="skill-x">×</text>
+      </view>
+      <view class="skill-tag mask" wx:if="{{activeMask}}" bindtap="clearMask">
+        <text>{{maskLabel}}</text>
+        <text class="skill-x">×</text>
+      </view>
+    </view>
     <view class="composer-box">
+      <view class="plus-wrap">
+        <view
+          wx:if="{{activeSkill === 'edit'}}"
+          class="edit-exit"
+          bindtap="clearSkill"
+        >退出</view>
+        <view
+          wx:if="{{activeSkill === 'edit'}}"
+          class="plus upload {{editImagePath ? 'has-img' : ''}}"
+          bindtap="pickEditImage"
+        >
+          <image
+            wx:if="{{editImagePath}}"
+            class="plus-thumb"
+            src="{{editImagePath}}"
+            mode="aspectFill"
+          />
+          <text wx:else class="plus-upload-ico">⬆</text>
+        </view>
+        <view wx:else class="plus" bindtap="onPlus">＋</view>
+      </view>
       <input
         class="input"
         value="{{input}}"
-        placeholder="有问题，尽管问"
+        placeholder="{{placeholder}}"
         confirm-type="send"
         adjust-position
         hold-keyboard
@@ -56,8 +154,188 @@
         bindconfirm="onSend"
         disabled="{{busy}}"
       />
-      <view class="send {{canSend ? 'on' : ''}}" bindtap="onSend">发送</view>
+      <view class="send {{canSend ? 'on' : ''}}" bindtap="onSend">
+        {{activeSkill === 'image' ? '生成' : activeSkill === 'edit' ? '改图' : '发送'}}
+      </view>
     </view>
     <view class="safe"></view>
+  </view>
+
+  <!-- 加号面板 -->
+  <view class="sheet-mask" wx:if="{{showSheet}}" bindtap="closeSheet"></view>
+  <view class="sheet {{showSheet ? 'show' : ''}}">
+    <view class="sheet-title">添加能力</view>
+    <view class="sheet-grid">
+      <view class="sheet-item" bindtap="openMaskPanel">
+        <view class="sheet-ico" style="background: rgba(236,72,153,0.12);">🎭</view>
+        <text class="sheet-name">角色面具</text>
+      </view>
+      <view class="sheet-item" bindtap="pickEditImage">
+        <view class="sheet-ico" style="background: rgba(244,63,94,0.12);">📷</view>
+        <text class="sheet-name">上传改图</text>
+      </view>
+      <view
+        class="sheet-item"
+        wx:for="{{skills}}"
+        wx:key="id"
+        data-id="{{item.id}}"
+        bindtap="onSkillFromSheet"
+      >
+        <view class="sheet-ico" style="background: {{item.bg}};">{{item.emoji}}</view>
+        <text class="sheet-name">{{item.name}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 面具面板 -->
+  <view class="sheet-mask" wx:if="{{showMaskPanel}}" bindtap="closeMaskPanel"></view>
+  <view class="panel {{showMaskPanel ? 'show' : ''}}">
+    <view class="panel-head">
+      <view class="panel-title">角色面具</view>
+      <view class="panel-action" bindtap="openMaskCreate">＋ 创建</view>
+    </view>
+    <scroll-view scroll-y class="panel-body" enhanced show-scrollbar="{{false}}">
+      <view class="panel-sec" wx:if="{{customMasks.length}}">我的面具</view>
+      <view class="panel-grid" wx:if="{{customMasks.length}}">
+        <view
+          class="panel-card {{activeMask === item.id ? 'on' : ''}}"
+          wx:for="{{customMasks}}"
+          wx:key="id"
+        >
+          <view class="panel-card-main" data-id="{{item.id}}" bindtap="onPickMask">
+            <view class="panel-emoji">{{item.emoji}}</view>
+            <view class="panel-name">{{item.name}}</view>
+            <view class="panel-desc">{{item.desc}}</view>
+          </view>
+          <view class="panel-del" data-id="{{item.id}}" catchtap="onDeleteMask">删除</view>
+        </view>
+      </view>
+      <view class="panel-sec">内置面具</view>
+      <view class="panel-grid">
+        <view
+          class="panel-card {{activeMask === item.id ? 'on' : ''}}"
+          wx:for="{{builtinMasks}}"
+          wx:key="id"
+          data-id="{{item.id}}"
+          bindtap="onPickMask"
+        >
+          <view class="panel-emoji">{{item.emoji}}</view>
+          <view class="panel-name">{{item.name}}</view>
+          <view class="panel-desc">{{item.desc}}</view>
+        </view>
+      </view>
+      <view class="panel-safe"></view>
+    </scroll-view>
+  </view>
+
+  <!-- 创建面具 -->
+  <view class="sheet-mask" wx:if="{{showMaskCreate}}" bindtap="closeMaskCreate"></view>
+  <view class="panel create-panel {{showMaskCreate ? 'show' : ''}}">
+    <view class="panel-head">
+      <view class="panel-title">创建自定义面具</view>
+      <view class="panel-action dim" bindtap="closeMaskCreate">取消</view>
+    </view>
+    <scroll-view scroll-y class="panel-body form" enhanced show-scrollbar="{{false}}">
+      <view class="form-label">头像</view>
+      <view class="emoji-row">
+        <view
+          class="emoji-pick {{form.emoji === item ? 'on' : ''}}"
+          wx:for="{{emojiPresets}}"
+          wx:key="*this"
+          data-emoji="{{item}}"
+          bindtap="onPickEmoji"
+        >{{item}}</view>
+      </view>
+      <view class="form-label">名称</view>
+      <input class="form-input" value="{{form.name}}" placeholder="例如：毒舌吐槽役" bindinput="onFormName" />
+      <view class="form-label">一句话简介</view>
+      <input class="form-input" value="{{form.desc}}" placeholder="别人一眼看懂它能干什么" bindinput="onFormDesc" />
+      <view class="form-label">人设 / 系统提示词</view>
+      <textarea
+        class="form-area"
+        value="{{form.prompt}}"
+        placeholder="描述性格、口吻、擅长做什么、不要做什么…"
+        maxlength="1000"
+        bindinput="onFormPrompt"
+      />
+      <view class="form-label">开场白（可选）</view>
+      <textarea
+        class="form-area short"
+        value="{{form.hello}}"
+        placeholder="戴上面具后的第一句话"
+        maxlength="200"
+        bindinput="onFormHello"
+      />
+      <view class="form-save" bindtap="onSaveMask">保存并使用</view>
+      <view class="panel-safe"></view>
+    </scroll-view>
+  </view>
+
+  <!-- 左侧抽屉 -->
+  <view class="drawer-mask {{showDrawer ? 'show' : ''}}" bindtap="closeDrawer"></view>
+  <view class="drawer {{showDrawer ? 'show' : ''}}" style="padding-top: {{statusBarHeight}}px;">
+    <view class="drawer-user">
+      <image
+        wx:if="{{loggedIn && user.avatarUrl}}"
+        class="drawer-avatar"
+        src="{{user.avatarUrl}}"
+        mode="aspectFill"
+      />
+      <view wx:else class="drawer-avatar ph">{{loggedIn ? '呆' : '游'}}</view>
+      <view class="drawer-user-meta">
+        <view class="drawer-name">{{loggedIn ? user.nickName : '游客'}}</view>
+        <view class="drawer-tip">{{loggedIn ? '已登录 · 呆呆 AI' : '游客模式 · 使用需登录'}}</view>
+      </view>
+    </view>
+
+    <view class="drawer-item" bindtap="onNewChatFromDrawer">＋ 新对话</view>
+    <view class="drawer-item" bindtap="goHome">⌂ 返回首页</view>
+
+    <view class="drawer-sec">最近对话</view>
+    <scroll-view scroll-y class="drawer-hist" enhanced show-scrollbar="{{false}}">
+      <view wx:if="{{!loggedIn}}" class="drawer-empty">登录后可查看历史对话</view>
+      <view wx:elif="{{!historyList.length}}" class="drawer-empty">暂无历史，聊几句就会出现在这里</view>
+      <block wx:else>
+        <view
+          class="drawer-hist-item {{sessionId === item.id ? 'on' : ''}}"
+          wx:for="{{historyList}}"
+          wx:key="id"
+        >
+          <view class="drawer-hist-main" data-id="{{item.id}}" bindtap="onPickHistory">
+            <view class="drawer-hist-title">{{item.title}}</view>
+            <view class="drawer-hist-preview">{{item.preview}}</view>
+          </view>
+          <view class="drawer-hist-del" data-id="{{item.id}}" catchtap="onDeleteHistory">删</view>
+        </view>
+      </block>
+    </scroll-view>
+
+    <view class="drawer-foot">
+      <view wx:if="{{!loggedIn}}" class="drawer-item primary" bindtap="openLogin">登录以使用</view>
+      <view wx:else class="drawer-item danger" bindtap="onLogout">退出登录</view>
+    </view>
+  </view>
+
+  <!-- 使用时弹出的登录面板 -->
+  <view class="sheet-mask login-mask" wx:if="{{showLogin}}" bindtap="closeLogin"></view>
+  <view class="login-sheet {{showLogin ? 'show' : ''}}">
+    <view class="login-sheet-title">登录后使用呆呆 AI</view>
+    <view class="login-sheet-desc">游客可浏览；聊天、写作、编程、生图、改图需登录</view>
+    <view class="login-profile">
+      <button class="avatar-btn" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
+        <image wx:if="{{loginAvatar}}" class="avatar-img" src="{{loginAvatar}}" mode="aspectFill" />
+        <text wx:else class="avatar-ph">选头像</text>
+      </button>
+      <input
+        class="nick-input"
+        type="nickname"
+        placeholder="填写昵称（选填）"
+        value="{{loginNick}}"
+        bindinput="onNickInput"
+        bindblur="onNickInput"
+      />
+    </view>
+    <button class="login-btn" loading="{{loginLoading}}" bindtap="onLogin">微信登录</button>
+    <view class="login-cancel" bindtap="closeLogin">稍后再说</view>
   </view>
 </view>

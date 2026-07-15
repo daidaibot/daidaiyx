@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>呆呆网络</title>
+  <link rel="stylesheet" href="./home.css" />
+</head>
+<body>
+  <div class="root">
+    <div id="splash" class="splash">
+      <div class="splash-scene">
+        <div class="splash-ring"></div>
+        <div class="splash-ring splash-ring--delay"></div>
+        <div class="splash-label">欢迎来访</div>
+        <div class="splash-name">
+          <img class="brand-logo brand-logo--splash" src="./assets/dai-logo.png" alt="呆呆网络" />
+        </div>
+        <div class="splash-line"></div>
+      </div>
+      <div class="splash-skip">点击任意处进入</div>
+    </div>
+
+    <div id="page" class="page-wrap">
+      <nav class="nav">
+        <div class="nav-inner">
+          <a class="nav-logo" href="#hero">
+            <img class="brand-logo brand-logo--nav" src="./assets/dai-logo.png" alt="呆呆网络" />
+          </a>
+          <div class="nav-links">
+            <a class="nav-link" href="#about">关于</a>
+            <a class="nav-link" href="#contact">联系</a>
+          </div>
+        </div>
+      </nav>
+
+      <main>
+        <section class="hero" id="hero">
+          <div class="hero-signature hero-in" style="animation-delay: 0s;">
+            <img class="brand-logo brand-logo--hero" src="./assets/dai-logo.png" alt="呆呆网络" />
+            <p class="hero-tagline">Happy every day</p>
+          </div>
+          <div class="hero-actions hero-in" style="animation-delay: 0.07s;">
+            <a class="btn btn-primary" href="#contact">联系我</a>
+            <a class="btn btn-ghost" href="#about">了解更多</a>
+          </div>
+          <div class="hero-ai hero-in" style="animation-delay: 0.14s;">
+            <button type="button" class="btn btn-ai" id="goAi">打开呆呆 AI</button>
+          </div>
+          <div class="hero-scroll-wrap">
+            <a class="hero-scroll-hint" href="#about">
+              <span class="hero-scroll-text">下滑了解更多</span>
+              <span class="hero-scroll-arrow">↓</span>
+            </a>
+          </div>
+        </section>
+
+        <section class="section" id="about">
+          <div class="section-label">关于</div>
+          <h2 class="section-title">关于我</h2>
+          <div class="about-grid">
+            <div class="glass-card">
+              <div class="card-icon">◈</div>
+              <div class="card-title">吃</div>
+              <div class="card-desc">爱吃</div>
+            </div>
+            <div class="glass-card">
+              <div class="card-icon">◉</div>
+              <div class="card-title">睡</div>
+              <div class="card-desc">爱睡</div>
+            </div>
+            <div class="glass-card">
+              <div class="card-icon">◎</div>
+              <div class="card-title">玩</div>
+              <div class="card-desc">爱玩</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="contact">
+          <div class="section-label">联系</div>
+          <h2 class="section-title">联系方式</h2>
+          <p class="contact-subtitle">期待与你的合作，随时欢迎联系</p>
+          <div class="contact-grid">
+            <div class="glass-card contact-card">
+              <div class="contact-icon wechat"><span class="wechat-txt">微</span></div>
+              <div class="contact-h3">微信 WeChat</div>
+              <div class="contact-value" id="wechatVal">Aa_dai_520</div>
+              <button type="button" class="copy-btn" data-copy="Aa_dai_520">复制</button>
+            </div>
+            <div class="glass-card contact-card">
+              <div class="contact-icon qq"><span class="qq-txt">Q</span></div>
+              <div class="contact-h3">QQ</div>
+              <div class="contact-value">25485733</div>
+              <button type="button" class="copy-btn" data-copy="25485733">复制</button>
+            </div>
+          </div>
+        </section>
+
+        <footer class="footer">
+          <span>© <span id="year"></span> </span>
+          <img class="brand-logo brand-logo--footer" src="./assets/dai-logo.png" alt="" />
+          <span> · Crafted with passion.</span>
+        </footer>
+      </main>
+    </div>
+
+    <div id="toast" class="toast">已复制到剪贴板</div>
+    <div id="transit" class="ai-transit">
+      <div class="ai-transit-sheet">
+        <div class="ai-transit-avatar">呆</div>
+        <div class="ai-transit-text">正在进入呆呆 AI</div>
+      </div>
+    </div>
+  </div>
+  <script src="./home.js"></script>
+</body>
+</html>

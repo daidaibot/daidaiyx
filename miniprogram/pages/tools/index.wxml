@@ -1,0 +1,82 @@
+<view class="page">
+  <view class="nav" style="padding-top: {{statusBarHeight}}px;">
+    <view class="nav-inner">
+      <view class="back" bindtap="goBack">‹</view>
+      <view class="nav-center">
+        <view class="nav-title">呆呆 AI</view>
+        <view class="nav-sub">多功能工具箱</view>
+      </view>
+      <view class="nav-spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view class="body" scroll-y enhanced show-scrollbar="{{false}}">
+    <view class="hero">
+      <view class="hero-title">想做什么？</view>
+      <view class="hero-desc">对话、写作、翻译、代码、图像，一个入口全覆盖</view>
+    </view>
+
+    <view class="sec">
+      <view class="sec-label">智能对话</view>
+      <view class="list">
+        <view
+          class="list-item"
+          wx:for="{{chatTools}}"
+          wx:key="id"
+          data-mode="{{item.mode}}"
+          bindtap="openChat"
+        >
+          <view class="list-icon" style="background: {{item.bg}};">{{item.emoji}}</view>
+          <view class="list-main">
+            <view class="list-name">{{item.name}}</view>
+            <view class="list-desc">{{item.desc}}</view>
+          </view>
+          <view class="list-arrow">›</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="sec">
+      <view class="sec-label">图像工具</view>
+      <view class="grid">
+        <view
+          class="grid-item"
+          wx:for="{{imageTools}}"
+          wx:key="id"
+          data-id="{{item.id}}"
+          data-name="{{item.name}}"
+          bindtap="openImageTool"
+        >
+          <image class="grid-icon" src="{{item.icon}}" mode="aspectFit" />
+          <view class="grid-name">{{item.name}}</view>
+          <view class="grid-desc">{{item.desc}}</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="sec">
+      <view class="sec-label">更多能力</view>
+      <view class="list">
+        <view
+          class="list-item"
+          wx:for="{{moreTools}}"
+          wx:key="id"
+          data-mode="{{item.mode}}"
+          data-demo="{{item.demo}}"
+          data-name="{{item.name}}"
+          bindtap="openMore"
+        >
+          <view class="list-icon" style="background: {{item.bg}};">{{item.emoji}}</view>
+          <view class="list-main">
+            <view class="list-name">{{item.name}}</view>
+            <view class="list-desc">{{item.desc}}</view>
+          </view>
+          <view class="list-arrow">›</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="foot">后续会继续加功能 · 呆呆网络</view>
+    <view class="safe"></view>
+  </scroll-view>
+</view>

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <title>呆呆 AI</title>
+  <link rel="stylesheet" href="./chat.css" />
+</head>
+<body>
+  <div class="page entered" id="app">
+    <header class="nav">
+      <div class="nav-inner">
+        <button type="button" class="menu-btn" id="openDrawer" aria-label="菜单">
+          <span class="menu-line"></span>
+          <span class="menu-line"></span>
+          <span class="menu-line"></span>
+        </button>
+        <div class="nav-center">
+          <div class="nav-title">呆呆 AI</div>
+          <div class="nav-sub" id="navSub"></div>
+        </div>
+        <button type="button" class="nav-right" id="newChat">新对话</button>
+      </div>
+    </header>
+
+    <div class="msgs" id="msgs">
+      <div class="msgs-pad" id="msgsPad">
+        <div class="welcome" id="welcome">
+          <div class="welcome-avatar" id="welcomeEmoji">呆</div>
+          <div class="welcome-hi" id="welcomeHi">你好，我是呆呆 AI</div>
+          <div class="welcome-sub" id="welcomeSub">聊聊想法，或点下面的能力开始</div>
+          <div class="guest-tip" id="guestTip">当前是游客模式 · 登录后即可使用</div>
+
+          <div class="sec-head">
+            <span class="sec-title">快捷能力</span>
+          </div>
+          <div class="skill-grid" id="skillGrid"></div>
+
+          <div class="sec-head">
+            <span class="sec-title">角色面具</span>
+            <button type="button" class="sec-link" id="openMasks">全部 · 自定义</button>
+          </div>
+          <div class="mask-scroll">
+            <div class="mask-row" id="maskRow"></div>
+          </div>
+        </div>
+        <div id="msgList"></div>
+        <div id="bottom" class="bottom-anchor"></div>
+      </div>
+    </div>
+
+    <div class="img-bar hidden" id="imgBar">
+      <span class="img-bar-label">画幅</span>
+      <button type="button" class="ratio on" data-size="1024x1024">1:1</button>
+      <button type="button" class="ratio" data-size="1536x1024">3:2</button>
+      <button type="button" class="ratio" data-size="1024x1536">2:3</button>
+    </div>
+
+    <div class="composer" id="composer">
+      <div class="tag-row hidden" id="tagRow">
+        <button type="button" class="skill-tag hidden" id="skillTag"><span></span><span class="skill-x">×</span></button>
+        <button type="button" class="skill-tag mask hidden" id="maskTag"><span></span><span class="skill-x">×</span></button>
+      </div>
+      <div class="composer-box">
+        <div class="plus-wrap">
+          <button type="button" class="edit-exit hidden" id="editExit">退出</button>
+          <button type="button" class="plus" id="plusBtn">＋</button>
+          <input type="file" id="editFile" accept="image/*" hidden />
+        </div>
+        <input class="input" id="input" placeholder="发消息或输入…" autocomplete="off" />
+        <button type="button" class="send" id="sendBtn">发送</button>
+      </div>
+      <div class="safe"></div>
+    </div>
+  </div>
+
+  <div class="sheet-mask hidden" id="sheetMask"></div>
+  <div class="sheet" id="sheet">
+    <div class="sheet-title">添加能力</div>
+    <div class="sheet-grid" id="sheetGrid"></div>
+  </div>
+
+  <div class="sheet-mask hidden" id="maskPanelMask"></div>
+  <div class="panel" id="maskPanel">
+    <div class="panel-head">
+      <div class="panel-title">角色面具</div>
+      <button type="button" class="panel-action" id="createMaskBtn">＋ 创建</button>
+    </div>
+    <div class="panel-body" id="maskPanelBody"></div>
+  </div>
+
+  <div class="drawer-mask hidden" id="drawerMask"></div>
+  <aside class="drawer" id="drawer">
+    <div class="drawer-user" id="drawerUser">
+      <div class="drawer-avatar">游</div>
+      <div>
+        <div class="drawer-name">游客</div>
+        <div class="drawer-desc">登录后同步体验</div>
+      </div>
+    </div>
+    <button type="button" class="drawer-item" id="drawerHome">回到首页</button>
+    <button type="button" class="drawer-item" id="drawerNew">开启新对话</button>
+    <div class="drawer-sec">历史对话</div>
+    <div class="drawer-hist" id="histList"></div>
+    <button type="button" class="drawer-item login" id="drawerAuth">登录</button>
+  </aside>
+
+  <div class="login-mask hidden" id="loginMask">
+    <div class="login-sheet">
+      <div class="login-title">登录后使用呆呆 AI</div>
+      <p class="login-desc">网页端可用昵称登录；小程序内用微信登录。</p>
+      <input id="nickInput" class="login-input" placeholder="输入昵称" maxlength="20" />
+      <button type="button" class="login-btn" id="loginBtn">进入</button>
+      <button type="button" class="login-cancel" id="loginCancel">暂不登录</button>
+    </div>
+  </div>
+
+  <div class="create-mask hidden" id="createMask">
+    <div class="create-card">
+      <div class="create-title">创建面具</div>
+      <input id="cmName" class="login-input" placeholder="名称，如：毒舌吐槽" />
+      <input id="cmEmoji" class="login-input" placeholder="emoji，如：🔥" maxlength="4" />
+      <textarea id="cmPrompt" class="login-input area" placeholder="面具设定（会作为系统提示）"></textarea>
+      <div class="create-actions">
+        <button type="button" class="login-cancel" id="cmCancel">取消</button>
+        <button type="button" class="login-btn" id="cmSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="./chat.js"></script>
+</body>
+</html>

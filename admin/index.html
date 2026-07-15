@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>呆呆网络 · 后台</title>
+  <link rel="stylesheet" href="./admin.css" />
+</head>
+<body>
+  <div id="loginView" class="login-wrap">
+    <div class="login-card">
+      <div class="brand">呆呆网络</div>
+      <h1>管理后台</h1>
+      <p class="muted">仅管理员可进入，密码在云托管环境变量 <code>ADMIN_PASSWORD</code></p>
+      <input id="pwd" type="password" placeholder="管理员密码" autocomplete="current-password" />
+      <button id="loginBtn" type="button">登录</button>
+      <p id="loginErr" class="err"></p>
+    </div>
+  </div>
+
+  <div id="appView" class="app hidden">
+    <aside class="side">
+      <div class="side-brand">呆呆网络</div>
+      <nav>
+        <button class="nav on" data-tab="overview">总览</button>
+        <button class="nav" data-tab="services">服务状态</button>
+        <button class="nav" data-tab="guide">部署说明</button>
+      </nav>
+      <button id="logoutBtn" class="logout" type="button">退出</button>
+    </aside>
+    <main class="main">
+      <header class="top">
+        <h2 id="pageTitle">总览</h2>
+        <span class="badge" id="aliveBadge">检测中…</span>
+      </header>
+
+      <section id="tab-overview" class="panel">
+        <div class="cards">
+          <div class="card">
+            <div class="card-k">对话请求</div>
+            <div class="card-v" id="statChat">—</div>
+          </div>
+          <div class="card">
+            <div class="card-k">生图请求</div>
+            <div class="card-v" id="statImage">—</div>
+          </div>
+          <div class="card">
+            <div class="card-k">改图请求</div>
+            <div class="card-v" id="statEdit">—</div>
+          </div>
+          <div class="card">
+            <div class="card-k">登录次数</div>
+            <div class="card-v" id="statLogin">—</div>
+          </div>
+        </div>
+        <div class="note">
+          <p>对外产品名：<b>呆呆 AI</b>（不展示底层供应商）</p>
+          <p>小程序聊天记录保存在用户手机本地；本后台看的是云端服务状态与调用量。</p>
+        </div>
+      </section>
+
+      <section id="tab-services" class="panel hidden">
+        <table class="table">
+          <thead>
+            <tr><th>能力</th><th>状态</th><th>说明</th></tr>
+          </thead>
+          <tbody id="svcBody"></tbody>
+        </table>
+      </section>
+
+      <section id="tab-guide" class="panel hidden">
+        <div class="guide">
+          <h3>部署在哪里？</h3>
+          <p><b>推荐：微信云托管</b>（和现在 API 同一个服务）。部署后：</p>
+          <pre>https://你的云托管域名/          ← 和小程序同款网站
+https://你的云托管域名/admin/    ← 管理后台</pre>
+          <ol>
+            <li>微信公众平台 → 云托管 → 服务设置</li>
+            <li>环境变量加上：
+              <ul>
+                <li><code>ADMIN_PASSWORD</code> = 你的后台密码</li>
+                <li><code>DEEPSEEK_API_KEY</code> = 对话</li>
+                <li><code>OPENAI_API_KEY</code> = 生图/改图</li>
+                <li><code>WECHAT_APPID</code> / <code>WECHAT_SECRET</code> = 小程序登录</li>
+              </ul>
+            </li>
+            <li>重新发布服务</li>
+            <li>浏览器打开上面的 <code>/admin/</code> 网址登录</li>
+          </ol>
+          <h3>也可以？</h3>
+          <p>自己的云服务器、任意能跑 Node 的 Docker 环境都行，但和你现有小程序链路最省事的是<strong>继续用微信云托管</strong>。</p>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="./admin.js"></script>
+</body>
+</html>
