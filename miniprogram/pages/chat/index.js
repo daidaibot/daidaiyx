@@ -655,7 +655,7 @@ Page({
       .then((data) => {
         wx.hideLoading();
         this.setData({ codeSending: false });
-        this._startCodeCool(data.cooldownSec || 60);
+        this._startCodeCooldown(data.cooldownSec || 60);
         const shown = data.previewCode || data.devCode;
         if (shown) {
           this.setData({ loginCode: String(shown) });
