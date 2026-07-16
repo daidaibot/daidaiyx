@@ -280,6 +280,7 @@ function maintenanceApiGate(req, res, next) {
   }
   if (req.path.startsWith("/api/image/file/")) return next();
   if (req.path.startsWith("/api/image/job/")) return next();
+  if (req.path.startsWith("/api/avatar/")) return next();
   const settings = ops.loadSettings();
   if (!settings.maintenance) return next();
   return res.status(503).json({
@@ -838,6 +839,31 @@ function hashCode(str) {
   return Math.abs(h).toString(16);
 }
 
+function publicOrigin(req) {
+  const proto = String(req.headers["x-forwarded-proto"] || req.protocol || "https").split(",")[0].trim();
+  const host = String(req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0].trim();
+  if (host) return `${proto}://${host}`;
+  return String(ops.getPublicApiBase(ops.loadSettings()) || "").replace(/\/$/, "") || "";
+}
+
+function saveUserAvatar(openid, avatarBase64) {
+  const raw = String(avatarBase64 || "").replace(/^data:image\/\w+;base64,/, "").trim();
+  if (!openid || !raw) return "";
+  let buf;
+  try {
+    buf = Buffer.from(raw, "base64");
+  } catch {
+    return "";
+  }
+  if (!buf.length || buf.length > 800 * 1024) return "";
+  const dir = path.join(ops.DATA_DIR, "avatars");
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const safe = String(openid).replace(/[^\w.-]/g, "_").slice(0, 80);
+  const file = path.join(dir, `${safe}.jpg`);
+  fs.writeFileSync(file, buf);
+  return safe;
+}
+
 /**
  * 小程序登录：wx.login code → jscode2session
  * 必须配置 WECHAT_APPID + WECHAT_SECRET；禁止默认假登录
@@ -851,7 +877,8 @@ app.post("/api/auth/login", async (req, res) => {
   }
 
   const nickName = String(body.nickName || "").trim() || "微信用户";
-  const avatarUrl = String(body.avatarUrl || "").trim();
+  let avatarUrl = String(body.avatarUrl || "").trim();
+  const avatarBase64 = body.avatarBase64 || "";
 
   try {
     if (!WECHAT_APPID || !WECHAT_SECRET) {
@@ -865,6 +892,11 @@ app.post("/api/auth/login", async (req, res) => {
       }
       const openid = `dev_${hashCode(code)}`;
       const token = `dev_${openid}`;
+      const saved = saveUserAvatar(openid, avatarBase64);
+      if (saved) {
+        const origin = publicOrigin(req);
+        avatarUrl = origin ? `${origin}/api/avatar/${saved}` : `/api/avatar/${saved}`;
+      }
       stats.login += 1;
       ops.bumpHourly("login");
       issueUserSession({
@@ -940,6 +972,11 @@ app.post("/api/auth/login", async (req, res) => {
         },
       });
     }
+    const saved = saveUserAvatar(data.openid, avatarBase64);
+    if (saved) {
+      const origin = publicOrigin(req);
+      avatarUrl = origin ? `${origin}/api/avatar/${saved}` : `/api/avatar/${saved}`;
+    }
     stats.login += 1;
     ops.bumpHourly("login");
     const token = `wx_${data.openid}_${hashCode(data.session_key || code)}`;
@@ -968,6 +1005,16 @@ app.post("/api/auth/login", async (req, res) => {
       error: { message: "登录服务繁忙，请稍后再试" },
     });
   }
+});
+
+app.get("/api/avatar/:id", (req, res) => {
+  const id = String(req.params.id || "").replace(/[^\w.-]/g, "").slice(0, 80);
+  if (!id) return res.status(404).end();
+  const file = path.join(ops.DATA_DIR, "avatars", `${id}.jpg`);
+  if (!fs.existsSync(file)) return res.status(404).json({ ok: false, error: { message: "头像不存在" } });
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.type("jpg");
+  return res.sendFile(file);
 });
 
 /**

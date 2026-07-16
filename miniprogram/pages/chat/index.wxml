@@ -343,26 +343,38 @@
     </view>
   </view>
 
-  <!-- 使用时弹出的登录面板 -->
+  <!-- 使用时弹出的登录面板：头像+昵称须用户点选（微信已禁止静默拉取） -->
   <view class="sheet-mask login-mask" wx:if="{{showLogin}}" bindtap="closeLogin"></view>
   <view class="login-sheet {{showLogin ? 'show' : ''}}">
     <view class="login-sheet-title">微信登录</view>
-    <view class="login-sheet-desc">将向微信申请授权登录；未授权无法使用聊天、生图等功能</view>
-    <view class="login-profile">
-      <button class="avatar-btn" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
-        <image wx:if="{{loginAvatar}}" class="avatar-img" src="{{loginAvatar}}" mode="aspectFill" />
-        <text wx:else class="avatar-ph">选头像</text>
-      </button>
-      <input
-        class="nick-input"
-        type="nickname"
-        placeholder="微信昵称（可选）"
-        value="{{loginNick}}"
-        bindinput="onNickInput"
-        bindblur="onNickInput"
-      />
-    </view>
-    <button class="login-btn" loading="{{loginLoading}}" bindtap="onLogin">跳转微信授权登录</button>
+    <view class="login-sheet-desc">先点头像选用微信头像，再点昵称栏选用微信昵称，然后登录</view>
+    <form bindsubmit="onLoginSubmit">
+      <view class="login-profile">
+        <button
+          class="avatar-btn"
+          open-type="chooseAvatar"
+          bindchooseavatar="onChooseAvatar"
+          hover-class="none"
+        >
+          <image wx:if="{{loginAvatar}}" class="avatar-img" src="{{loginAvatar}}" mode="aspectFill" />
+          <text wx:else class="avatar-ph">微信头像</text>
+        </button>
+        <input
+          class="nick-input"
+          name="nickName"
+          type="nickname"
+          placeholder="点这里选用微信昵称"
+          value="{{loginNick}}"
+          bindinput="onNickInput"
+          bindblur="onNickInput"
+        />
+      </view>
+      <button
+        class="login-btn"
+        form-type="submit"
+        loading="{{loginLoading}}"
+      >确认登录</button>
+    </form>
     <view class="login-cancel" bindtap="closeLogin">稍后再说</view>
   </view>
 </view>

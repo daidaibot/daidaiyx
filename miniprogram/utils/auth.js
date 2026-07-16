@@ -61,7 +61,59 @@ function clearSession() {
   }
 }
 
-/** wx.login → 后端 code2session；必须走微信 + 已配置的云托管，禁止本地假登录 */
+function readAvatarBase64(filePath) {
+  return new Promise((resolve) => {
+    const p = String(filePath || '').trim();
+    if (!p || /^https?:\/\//i.test(p)) {
+      resolve('');
+      return;
+    }
+    try {
+      wx.getFileSystemManager().readFile({
+        filePath: p,
+        encoding: 'base64',
+        success: (res) => resolve(String(res.data || '')),
+        fail: () => resolve(''),
+      });
+    } catch (e) {
+      resolve('');
+    }
+  });
+}
+
+function persistAvatarLocal(tempPath, openid) {
+  return new Promise((resolve) => {
+    const src = String(tempPath || '').trim();
+    if (!src || /^https?:\/\//i.test(src)) {
+      resolve(src);
+      return;
+    }
+    const dest = `${wx.env.USER_DATA_PATH}/avatar_${String(openid || 'me').replace(/[^\w-]/g, '')}.jpg`;
+    try {
+      wx.getFileSystemManager().saveFile({
+        tempFilePath: src,
+        filePath: dest,
+        success: (res) => resolve((res && res.savedFilePath) || dest),
+        fail: () => {
+          try {
+            wx.getFileSystemManager().copyFile({
+              srcPath: src,
+              destPath: dest,
+              success: () => resolve(dest),
+              fail: () => resolve(src),
+            });
+          } catch (e) {
+            resolve(src);
+          }
+        },
+      });
+    } catch (e) {
+      resolve(src);
+    }
+  });
+}
+
+/** wx.login → 后端 code2session；昵称/头像由用户点选后传入 */
 function loginWithWeChat(profile = {}) {
   return new Promise((resolve, reject) => {
     let apiBase = '';
@@ -76,6 +128,17 @@ function loginWithWeChat(profile = {}) {
       return;
     }
 
+    const nickName = String(profile.nickName || '').trim();
+    const avatarUrl = String(profile.avatarUrl || '').trim();
+    if (!nickName) {
+      reject(new Error('请填写微信昵称'));
+      return;
+    }
+    if (!avatarUrl) {
+      reject(new Error('请选择微信头像'));
+      return;
+    }
+
     wx.login({
       success: (loginRes) => {
         const code = loginRes.code;
@@ -84,35 +147,46 @@ function loginWithWeChat(profile = {}) {
           return;
         }
 
-        wx.request({
-          url: `${apiBase.replace(/\/$/, '')}/api/auth/login`,
-          method: 'POST',
-          timeout: 20000,
-          data: {
-            code,
-            nickName: profile.nickName || '',
-            avatarUrl: profile.avatarUrl || '',
-          },
-          success: (res) => {
-            const data = res.data || {};
-            if (!data.ok || !data.openid || data.dev) {
-              reject(
-                new Error(
-                  data.error?.message ||
-                    '微信登录未配置，请在云托管设置 WECHAT_APPID / WECHAT_SECRET'
-                )
-              );
-              return;
-            }
-            const user = saveSession({
-              token: data.token || data.openid,
-              openid: data.openid,
-              nickName: data.nickName || profile.nickName || '微信用户',
-              avatarUrl: data.avatarUrl || profile.avatarUrl || '',
-            });
-            resolve(user);
-          },
-          fail: () => reject(new Error('网络错误，请稍后再试')),
+        readAvatarBase64(avatarUrl).then((avatarBase64) => {
+          wx.request({
+            url: `${apiBase.replace(/\/$/, '')}/api/auth/login`,
+            method: 'POST',
+            timeout: 20000,
+            data: {
+              code,
+              nickName,
+              avatarUrl: /^https?:\/\//i.test(avatarUrl) ? avatarUrl : '',
+              avatarBase64: avatarBase64 || '',
+            },
+            success: (res) => {
+              const data = res.data || {};
+              if (!data.ok || !data.openid || data.dev) {
+                reject(
+                  new Error(
+                    (data.error && data.error.message) ||
+                      '微信登录未配置，请在云托管设置 WECHAT_APPID / WECHAT_SECRET'
+                  )
+                );
+                return;
+              }
+              const remoteAvatar = String(data.avatarUrl || '').trim();
+              const finish = (localAvatar) => {
+                const user = saveSession({
+                  token: data.token || data.openid,
+                  openid: data.openid,
+                  nickName: data.nickName || nickName,
+                  avatarUrl: remoteAvatar || localAvatar || avatarUrl,
+                });
+                resolve(user);
+              };
+              if (remoteAvatar) {
+                finish(remoteAvatar);
+              } else {
+                persistAvatarLocal(avatarUrl, data.openid).then(finish);
+              }
+            },
+            fail: () => reject(new Error('网络错误，请稍后再试')),
+          });
         });
       },
       fail: () => reject(new Error('请在微信内使用微信登录')),

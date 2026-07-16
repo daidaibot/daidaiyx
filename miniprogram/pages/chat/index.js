@@ -550,12 +550,15 @@ Page({
   },
 
   openLogin() {
+    const user = getUser() || {};
     this.setData({
       showLogin: true,
       showDrawer: false,
       showSheet: false,
       showMaskPanel: false,
       showMaskCreate: false,
+      loginNick: this.data.loginNick || user.nickName || '',
+      loginAvatar: this.data.loginAvatar || user.avatarUrl || '',
     });
   },
 
@@ -582,18 +585,28 @@ Page({
     });
   },
 
-  onLogin() {
+  onLoginSubmit(e) {
     if (this.data.loginLoading) return;
-    this.setData({ loginLoading: true });
-    loginWithWeChat({
-      nickName: this.data.loginNick,
-      avatarUrl: this.data.loginAvatar,
-    })
+    const fromForm = (e.detail && e.detail.value && e.detail.value.nickName) || '';
+    const nickName = String(fromForm || this.data.loginNick || '').trim();
+    const avatarUrl = String(this.data.loginAvatar || '').trim();
+    if (!avatarUrl) {
+      wx.showToast({ title: '请先点选微信头像', icon: 'none' });
+      return;
+    }
+    if (!nickName) {
+      wx.showToast({ title: '请填写或选用微信昵称', icon: 'none' });
+      return;
+    }
+    this.setData({ loginLoading: true, loginNick: nickName });
+    loginWithWeChat({ nickName, avatarUrl })
       .then((user) => {
         this.setData({
           loggedIn: true,
           user,
           loginLoading: false,
+          loginNick: user.nickName || nickName,
+          loginAvatar: user.avatarUrl || avatarUrl,
           showLogin: false,
           showDrawer: false,
           welcomeSub: '我是呆呆 AI · 聊天写作编程 · 生图改图',
