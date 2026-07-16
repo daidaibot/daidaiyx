@@ -942,7 +942,7 @@ Page({
             wx.hideLoading();
             wx.showModal({
               title: '需要相册权限',
-              content: '请允许保存到相册，才能下载带「呆呆 AI 生成」水印的图片',
+              content: '请允许保存到相册',
               confirmText: '去设置',
               success: (r) => {
                 if (r.confirm) wx.openSetting({});

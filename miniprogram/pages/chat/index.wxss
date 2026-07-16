@@ -320,77 +320,15 @@
   white-space: pre-wrap;
 }
 
-/* 生图卡片：图宽 = 按钮行宽，水印已烙进 JPEG，不再叠 UI 浮层 */
-.bubble-img-card {
-  display: flex;
-  flex-direction: column;
+/* 聊天里只显示图；点开用系统相册全屏预览；水印只烙在 AI 出图 JPEG 里 */
+.bubble-img {
+  display: block;
   width: 480rpx;
   max-width: 100%;
   margin-top: 8rpx;
-  overflow: hidden;
   border-radius: 16rpx;
-  background: #fff;
-  box-sizing: border-box;
-}
-
-.bubble.user .bubble-img-card {
-  background: rgba(255, 255, 255, 0.18);
-}
-
-.bubble-img {
-  display: block;
-  width: 100%;
-  vertical-align: top;
   background: #eef1f5;
-}
-
-.img-actions {
-  display: flex;
-  gap: 0;
-  border-top: 1rpx solid rgba(15, 23, 42, 0.06);
-}
-
-.bubble.user .img-actions {
-  border-top-color: rgba(255, 255, 255, 0.2);
-}
-
-.img-act {
-  flex: 1;
-  text-align: center;
-  padding: 18rpx 0;
-  color: #334155;
-  font-size: 26rpx;
-  font-weight: 500;
-  background: transparent;
-}
-
-.img-act + .img-act {
-  border-left: 1rpx solid rgba(15, 23, 42, 0.06);
-}
-
-.bubble.user .img-act {
-  color: rgba(255, 255, 255, 0.95);
-}
-
-.bubble.user .img-act + .img-act {
-  border-left-color: rgba(255, 255, 255, 0.2);
-}
-
-.img-act.primary {
-  color: #2563eb;
-  font-weight: 600;
-}
-
-.bubble.user .img-act.primary {
-  color: #fff;
-}
-
-.img-act:active {
-  background: rgba(15, 23, 42, 0.06);
-}
-
-.bubble.user .img-act:active {
-  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
 }
 
 .typing {
@@ -1202,11 +1140,9 @@
   max-width: 68%;
 }
 
-.page.is-wide .bubble-img-card {
+.page.is-wide .bubble-img {
   width: 560rpx;
 }
-
-.page.is-wide .bubble-img {
   max-width: 420px;
 }
 

@@ -287,14 +287,8 @@
   function imageBlock(src) {
     const u = escapeHtml(src || "");
     if (!u) return "";
-    // 水印烙在 JPEG 内，UI 只保留对齐的操作条
-    return `<div class="bubble-img-card">
-      <img class="bubble-img" src="${u}" alt="" data-img="${u}" />
-      <div class="img-actions">
-        <button type="button" class="img-act" data-preview-img="${u}">查看</button>
-        <button type="button" class="img-act primary" data-download-img="${u}">下载</button>
-      </div>
-    </div>`;
+    // 聊天里只放图；点图全屏预览（相册风）；水印只在 AI 出图文件内
+    return `<img class="bubble-img" src="${u}" alt="" data-img="${u}" />`;
   }
 
   async function downloadImageFile(src) {
@@ -323,24 +317,17 @@
     if (!url) return;
     const box = $("imgLightbox");
     const img = $("imgLbImg");
-    const open = $("imgLbOpen");
-    const dl = $("imgLbDl");
     if (!box || !img) return;
     img.src = url;
-    if (open) open.href = url;
-    if (dl) {
-      dl.href = "#";
-      dl.onclick = (ev) => {
-        ev.preventDefault();
-        downloadImageFile(url);
-      };
-    }
+    box.dataset.src = url;
     box.classList.remove("hidden");
+    document.body.style.overflow = "hidden";
   }
 
   function closeImageLightbox() {
     const box = $("imgLightbox");
     if (box) box.classList.add("hidden");
+    document.body.style.overflow = "";
   }
 
   function renderMessages() {
@@ -894,23 +881,21 @@
   $("sendBtn").onclick = send;
 
   $("msgList").addEventListener("click", (e) => {
-    const previewBtn = e.target.closest("[data-preview-img]");
-    if (previewBtn) {
-      openImageLightbox(previewBtn.getAttribute("data-preview-img"));
-      return;
-    }
-    const dlBtn = e.target.closest("[data-download-img]");
-    if (dlBtn) {
-      downloadImageFile(dlBtn.getAttribute("data-download-img") || "");
-      return;
-    }
     const img = e.target.closest("img.bubble-img[data-img]");
     if (img) openImageLightbox(img.getAttribute("data-img"));
   });
   if ($("imgLbClose")) $("imgLbClose").onclick = closeImageLightbox;
+  if ($("imgLbDl")) {
+    $("imgLbDl").onclick = () => {
+      const box = $("imgLightbox");
+      downloadImageFile((box && box.dataset.src) || ($("imgLbImg") && $("imgLbImg").src) || "");
+    };
+  }
   if ($("imgLightbox")) {
     $("imgLightbox").addEventListener("click", (e) => {
-      if (e.target === $("imgLightbox")) closeImageLightbox();
+      if (e.target === $("imgLightbox") || e.target.classList.contains("img-lb-stage")) {
+        closeImageLightbox();
+      }
     });
   }
 

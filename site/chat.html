@@ -130,14 +130,17 @@
   </div>
 
   <div class="img-lightbox hidden" id="imgLightbox">
-    <button type="button" class="img-lb-close" id="imgLbClose" aria-label="关闭">×</button>
-    <img id="imgLbImg" class="img-lb-img" alt="预览" />
-    <div class="img-lb-actions">
-      <a class="img-lb-btn" id="imgLbOpen" href="#" target="_blank" rel="noopener">新窗口打开</a>
-      <a class="img-lb-btn primary" id="imgLbDl" href="#" download="daidai-ai.jpg">下载图片</a>
+    <header class="img-lb-top">
+      <button type="button" class="img-lb-back" id="imgLbClose">完成</button>
+    </header>
+    <div class="img-lb-stage">
+      <img id="imgLbImg" class="img-lb-img" alt="预览" />
     </div>
+    <footer class="img-lb-bottom">
+      <button type="button" class="img-lb-save" id="imgLbDl">保存图片</button>
+    </footer>
   </div>
 
-  <script src="./chat.js?v=20260716d"></script>
+  <script src="./chat.js?v=20260716e"></script>
 </body>
 </html>

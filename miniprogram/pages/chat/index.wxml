@@ -78,20 +78,15 @@
           <view class="bubble-wrap">
             <view class="bubble {{item.role}}">
               <text wx:if="{{item.content}}" class="bubble-text" user-select>{{item.content}}</text>
-              <view wx:if="{{item.image}}" class="bubble-img-card">
-                <image
-                  class="bubble-img"
-                  src="{{item.image}}"
-                  mode="widthFix"
-                  show-menu-by-longpress="{{true}}"
-                  bindtap="previewImage"
-                  data-src="{{item.image}}"
-                />
-                <view class="img-actions">
-                  <view class="img-act" catchtap="previewImage" data-src="{{item.image}}">查看</view>
-                  <view class="img-act primary" catchtap="downloadImage" data-src="{{item.image}}">下载</view>
-                </view>
-              </view>
+              <image
+                wx:if="{{item.image}}"
+                class="bubble-img"
+                src="{{item.image}}"
+                mode="widthFix"
+                show-menu-by-longpress="{{true}}"
+                bindtap="previewImage"
+                data-src="{{item.image}}"
+              />
               <view wx:if="{{item.loading}}" class="typing">
                 <view class="dot"></view>
                 <view class="dot"></view>
