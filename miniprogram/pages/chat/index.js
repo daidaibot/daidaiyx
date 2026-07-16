@@ -15,6 +15,9 @@ const {
 } = require('../../utils/auth');
 const {
   loadHistory,
+  loadHistoryFromServer,
+  openSessionFromServer,
+  syncAllLocalToServer,
   saveSession,
   getSession,
   removeSession,
@@ -85,7 +88,9 @@ function skillById(id) {
 function systemPrompt(skill, mask) {
   const brand =
     '你是「呆呆 AI」，由呆呆网络提供。对外只称呼自己为呆呆 AI，不要提及任何底层模型、厂商或 API 名称。' +
-    '不要说自己无法生成图片，也不要推荐其他绘画工具；需要出图时系统会走生图能力。';
+    '不要说自己无法生成图片，也不要推荐其他绘画工具；需要出图时系统会走生图能力。' +
+    '对话历史里若出现「【已生成图片】」或「【已改图】」，表示图片已经成功生成并展示给用户；' +
+    '用户再问「看到了吗 / 这张图 / 照片」时，必须明确确认图片已生成且你清楚刚才的出图结果，禁止再说「还没生成 / 系统暂时没图 / 请稍等马上就来」。';
   if (mask && mask.prompt) {
     return `${brand}\n当前角色面具要求：\n${mask.prompt}`;
   }
@@ -105,6 +110,57 @@ function systemPrompt(skill, mask) {
     return `${brand}\n你擅长头脑风暴：给出多样可行的点子并简短解释。`;
   }
   return `${brand}\n请简洁友好、乐于助人。`;
+}
+
+/** 生图/改图成功后的短说明：界面可显示，也会进 DeepSeek 上下文 */
+function imageDoneNote(prompt, kind) {
+  const p = String(prompt || '')
+    .replace(/^🎨\s*/, '')
+    .replace(/^🖌️\s*/, '')
+    .trim()
+    .slice(0, 80);
+  if (kind === 'edit') {
+    return p ? `已按你的要求改好图：「${p}」。` : '已按你的要求改好图。';
+  }
+  return p ? `已生成图片：「${p}」。` : '已生成图片。';
+}
+
+/**
+ * 把 UI 消息转成对话上游可用的文本历史（DeepSeek 看不懂图，用文字桥接）
+ * 常见做法：工具/生图结果写成 assistant 文本事件，再继续聊。
+ */
+function messagesToChatHistory(messages, buildQuotedContentFn) {
+  const list = Array.isArray(messages) ? messages : [];
+  return list
+    .filter((m) => m && !m.loading && (m.content || m.image))
+    .slice(-16)
+    .map((m) => {
+      if (m.role === 'user') {
+        let content = String(m.content || '');
+        if (m.image && !content) content = '【用户上传了一张图片，用于改图】';
+        else if (m.image) content = `${content}\n（用户附带了一张参考图）`;
+        if (m.quote && typeof buildQuotedContentFn === 'function') {
+          content = buildQuotedContentFn(content, m.quote, (m.quote && m.quote.mode) || 'quote');
+        }
+        return { role: 'user', content };
+      }
+      if (m.image) {
+        const kind = m.imageKind === 'edit' ? 'edit' : 'generate';
+        const tag = kind === 'edit' ? '【已改图】' : '【已生成图片】';
+        const note =
+          m.content && !/正在|请稍候|作图中|改图中/.test(m.content)
+            ? String(m.content)
+            : imageDoneNote(m.imagePrompt || '', kind);
+        return {
+          role: 'assistant',
+          content:
+            `${tag}${note}` +
+            '图片已展示在对话里。若用户问起这张图，请确认已生成成功，并围绕该出图结果继续聊。',
+        };
+      }
+      return { role: 'assistant', content: String(m.content || '') };
+    })
+    .filter((m) => m.content);
 }
 
 /** 普通对话框里也能识别「要出图」并走 /api/image */
@@ -261,7 +317,7 @@ Page({
     form: emptyForm(),
     scrollInto: '',
     messages: [],
-    imageSize: '1024x1024',
+    imageSize: '1152x1536',
     editImagePath: '',
     editImageB64: '',
     editMime: 'image/jpeg',
@@ -275,13 +331,25 @@ Page({
     historyList: [],
     sessionId: '',
     sizes: [
+      { label: '原比例', value: 'auto' },
       { label: '1:1', value: '1024x1024' },
+      { label: '3:4', value: '1152x1536' },
       { label: '3:2', value: '1536x1024' },
-      { label: '2:3', value: '1024x1536' },
     ],
+    showMsgMenu: false,
+    msgMenuTop: 120,
+    msgMenuLeft: 80,
+    msgMenuMsgId: '',
+    msgMenuCanEdit: false,
+    quoteMsg: null,
+    quoteMode: '',
+    editingMsgId: '',
   },
 
   _timer: null,
+  _msgMenuMsg: null,
+
+  noop() {},
 
   applyLayout() {
     const layout = getLayout();
@@ -365,7 +433,17 @@ Page({
   },
 
   refreshHistory() {
-    this.setData({ historyList: loadHistory() });
+    if (!isLoggedIn()) {
+      this.setData({ historyList: loadHistory() });
+      return;
+    }
+    loadHistoryFromServer()
+      .then((list) => {
+        this.setData({ historyList: list || loadHistory() });
+      })
+      .catch(() => {
+        this.setData({ historyList: loadHistory() });
+      });
   },
 
   restoreLatestSession() {
@@ -376,49 +454,54 @@ Page({
 
   openSessionById(id, opts = {}) {
     if (!id) return false;
-    const sess = getSession(id);
-    if (!sess || !sess.messages || !sess.messages.length) {
-      if (!opts.silent) {
-        wx.showToast({ title: '这条记录已失效', icon: 'none' });
-        this.refreshHistory();
+    const openLocal = (sess) => {
+      if (!sess || !sess.messages || !sess.messages.length) {
+        if (!opts.silent) {
+          wx.showToast({ title: '这条记录已失效', icon: 'none' });
+          this.refreshHistory();
+        }
+        return false;
       }
-      return false;
+      const meta = sess.meta || {};
+      this.setData(
+        {
+          sessionId: sess.id,
+          messages: sess.messages.map((m) => ({ ...m, loading: false })),
+          activeSkill: meta.activeSkill || '',
+          skillLabel: meta.skillLabel || '',
+          activeMask: meta.activeMask || '',
+          maskLabel: meta.maskLabel || '',
+          maskPrompt: meta.maskPrompt || '',
+          welcomeEmoji: meta.welcomeEmoji || '呆',
+          navTitle: '呆呆 AI',
+          navSub: meta.activeMask
+            ? meta.navSub || `面具 · ${meta.maskLabel || ''}`
+            : '随时帮忙',
+          imageSize: meta.imageSize || '1152x1536',
+          showDrawer: false,
+          input: '',
+          canSend: false,
+          busy: false,
+          placeholder: meta.activeSkill
+            ? skillById(meta.activeSkill)?.placeholder || '有问题，尽管问'
+            : meta.activeMask
+              ? `以「${meta.maskLabel}」继续说…`
+              : '有问题，尽管问',
+        },
+        () => {
+          setTimeout(() => this.setData({ scrollInto: 'm-bottom' }), 80);
+        }
+      );
+      return true;
+    };
+
+    if (isLoggedIn()) {
+      openSessionFromServer(id)
+        .then((sess) => openLocal(sess))
+        .catch(() => openLocal(getSession(id)));
+      return true;
     }
-    const meta = sess.meta || {};
-    this.setData(
-      {
-        sessionId: sess.id,
-        messages: sess.messages.map((m) => ({ ...m, loading: false })),
-        activeSkill: meta.activeSkill || '',
-        skillLabel: meta.skillLabel || '',
-        activeMask: meta.activeMask || '',
-        maskLabel: meta.maskLabel || '',
-        maskPrompt: meta.maskPrompt || '',
-        welcomeEmoji: meta.welcomeEmoji || '呆',
-        navTitle: '呆呆 AI',
-        navSub: meta.activeMask
-          ? meta.navSub || `面具 · ${meta.maskLabel || ''}`
-          : '随时帮忙',
-        imageSize: meta.imageSize || '1024x1024',
-        showDrawer: false,
-        input: '',
-        canSend: false,
-        busy: false,
-        placeholder: meta.activeSkill
-          ? skillById(meta.activeSkill)?.placeholder || '有问题，尽管问'
-          : meta.activeMask
-            ? `以「${meta.maskLabel || '面具'}」继续说…`
-            : '有问题，尽管问',
-        scrollInto: '',
-      },
-      () => {
-        setTimeout(() => this.setData({ scrollInto: 'm-bottom' }), 80);
-      }
-    );
-    if (!opts.silent) {
-      wx.showToast({ title: '已进入对话', icon: 'none' });
-    }
-    return true;
+    return openLocal(getSession(id));
   },
 
   saveCurrentSession() {
@@ -517,6 +600,9 @@ Page({
           navSub: '随时帮忙',
         });
         this.refreshHistory();
+        syncAllLocalToServer()
+          .then(() => this.refreshHistory())
+          .catch(() => {});
         if (!this.data.messages.length) {
           this.restoreLatestSession();
         }
@@ -664,6 +750,128 @@ Page({
     return !!text;
   },
 
+  msgPreview(msg) {
+    if (!msg) return '';
+    if (msg.content) return String(msg.content).replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (msg.image) return '[图片]';
+    return '';
+  },
+
+  msgWho(msg) {
+    return msg && msg.role === 'user' ? '我' : '呆呆 AI';
+  },
+
+  onMsgLongPress(e) {
+    this.openMsgMenu(e.currentTarget.dataset.id, e);
+  },
+
+  onMsgTap() {
+    /* 预留：单击不弹菜单，避免和选中文字冲突 */
+  },
+
+  openMsgMenu(id, e) {
+    const msg = (this.data.messages || []).find((m) => m.id === id);
+    if (!msg || msg.loading) return;
+    this._msgMenuMsg = msg;
+    const touch =
+      (e && e.touches && e.touches[0]) ||
+      (e && e.changedTouches && e.changedTouches[0]) ||
+      (e && e.detail) ||
+      {};
+    const sys =
+      (typeof wx.getWindowInfo === 'function' && wx.getWindowInfo()) ||
+      (typeof wx.getSystemInfoSync === 'function' && wx.getSystemInfoSync()) ||
+      { windowWidth: 375, windowHeight: 667 };
+    const menuW = 120;
+    const menuH = msg.role === 'user' ? 200 : 160;
+    let left = Number(touch.clientX || touch.x || sys.windowWidth / 2) - menuW / 2;
+    let top = Number(touch.clientY || touch.y || 160) - menuH - 12;
+    left = Math.max(12, Math.min(left, (sys.windowWidth || 375) - menuW - 12));
+    top = Math.max(12, Math.min(top, (sys.windowHeight || 667) - menuH - 12));
+    this.setData({
+      showMsgMenu: true,
+      msgMenuTop: top,
+      msgMenuLeft: left,
+      msgMenuMsgId: id,
+      msgMenuCanEdit: msg.role === 'user' && !!msg.content,
+    });
+  },
+
+  closeMsgMenu() {
+    this.setData({ showMsgMenu: false, msgMenuMsgId: '', msgMenuCanEdit: false });
+    this._msgMenuMsg = null;
+  },
+
+  clearQuote() {
+    this.setData({ quoteMsg: null, quoteMode: '' });
+  },
+
+  clearEditing() {
+    this.setData({ editingMsgId: '', input: '', canSend: false });
+  },
+
+  onMsgMenuAct(e) {
+    const act = e.currentTarget.dataset.act;
+    const msg = this._msgMenuMsg || (this.data.messages || []).find((m) => m.id === this.data.msgMenuMsgId);
+    this.closeMsgMenu();
+    if (!msg) return;
+
+    if (act === 'copy') {
+      const text = msg.content || (msg.image ? msg.image : '');
+      if (!text) {
+        wx.showToast({ title: '无可复制内容', icon: 'none' });
+        return;
+      }
+      wx.setClipboardData({
+        data: String(text),
+        success: () => wx.showToast({ title: '已复制', icon: 'success' }),
+      });
+      return;
+    }
+
+    if (act === 'reply' || act === 'quote') {
+      this.setData({
+        quoteMsg: {
+          id: msg.id,
+          who: this.msgWho(msg),
+          preview: this.msgPreview(msg),
+          content: msg.content || '',
+          image: msg.image || '',
+        },
+        quoteMode: act,
+        editingMsgId: '',
+      });
+      return;
+    }
+
+    if (act === 'edit') {
+      if (msg.role !== 'user' || !msg.content) {
+        wx.showToast({ title: '只能修改自己的文字消息', icon: 'none' });
+        return;
+      }
+      this.setData({
+        editingMsgId: msg.id,
+        input: msg.content,
+        canSend: true,
+        quoteMsg: null,
+        quoteMode: '',
+        activeSkill: '',
+        skillLabel: '',
+      });
+    }
+  },
+
+  buildQuotedContent(text, quote, mode) {
+    if (!quote) return text;
+    const label = mode === 'reply' ? '回复' : '引用';
+    const snippet = quote.content
+      ? String(quote.content).slice(0, 200)
+      : quote.image
+        ? '[图片]'
+        : quote.preview || '';
+    return `${label}「${quote.who || ''}」：\n> ${snippet}\n\n${text}`;
+  },
+
   onPlus() {
     this.setData({ showSheet: true, showMaskPanel: false, showMaskCreate: false });
   },
@@ -764,6 +972,12 @@ Page({
     });
   },
 
+  defaultSizeForSkill(id) {
+    if (id === 'edit') return '1152x1536';
+    if (id === 'image') return '1152x1536';
+    return this.data.imageSize || '1152x1536';
+  },
+
   setSkill(id) {
     const skill = skillById(id);
     if (!skill) {
@@ -786,6 +1000,7 @@ Page({
         skillLabel: skill.name,
         placeholder: skill.placeholder,
         showSheet: false,
+        imageSize: this.defaultSizeForSkill(id),
         ...(id !== 'edit'
           ? { editImagePath: '', editImageB64: '' }
           : {}),
@@ -983,19 +1198,45 @@ Page({
     this.withService(() => {
       const text = (this.data.input || '').trim();
       if (!text || this.data.busy) return;
+      if (this.data.editingMsgId) {
+        this.sendEditMessage(text);
+        return;
+      }
       if (this.data.activeSkill === 'image') {
         this.sendImage(stripImageCue(text));
       } else if (this.data.activeSkill === 'edit') {
         this.sendImageEdit(text);
       } else if (looksLikeImageRequest(text)) {
         // 未点「生图」技能时，识别出图意图，自动走生图接口
-        this.setData({ activeSkill: 'image' }, () => {
+        this.setData({ activeSkill: 'image', imageSize: '1152x1536' }, () => {
           this.sendImage(stripImageCue(text));
         });
       } else {
         this.sendText(text);
       }
     });
+  },
+
+  sendEditMessage(text) {
+    const editId = this.data.editingMsgId;
+    const msgs = this.data.messages || [];
+    const idx = msgs.findIndex((m) => m.id === editId);
+    if (idx < 0) {
+      this.setData({ editingMsgId: '' });
+      this.sendText(text);
+      return;
+    }
+    // 修改：截断该条之后的内容，用新文案重新问
+    const kept = msgs.slice(0, idx);
+    this.setData(
+      {
+        messages: kept,
+        editingMsgId: '',
+        quoteMsg: null,
+        quoteMode: '',
+      },
+      () => this.sendText(text)
+    );
   },
 
   pickEditImage() {
@@ -1031,6 +1272,7 @@ Page({
                     editImagePath: finalPath,
                     editImageB64: r.data,
                     editMime: 'image/jpeg',
+                    imageSize: '1152x1536',
                     showSheet: false,
                   },
                   () => this.setData({ canSend: this.computeCanSend(this.data.input) })
@@ -1081,15 +1323,28 @@ Page({
   sendText(text) {
     const skill = this.data.activeSkill;
     const mask = findMask(this.data.activeMask);
-    const history = this.data.messages
-      .filter((m) => m.content && !m.loading)
-      .slice(-12)
-      .map((m) => ({
-        role: m.role === 'user' ? 'user' : 'assistant',
-        content: m.content,
-      }));
+    const quote = this.data.quoteMsg;
+    const quoteMode = this.data.quoteMode;
+    const displayText = text;
+    const apiText = this.buildQuotedContent(text, quote, quoteMode);
+    const history = messagesToChatHistory(
+      this.data.messages,
+      this.buildQuotedContent.bind(this)
+    );
 
-    const userMsg = { id: uid(), role: 'user', content: text };
+    const userMsg = {
+      id: uid(),
+      role: 'user',
+      content: displayText,
+      quote: quote
+        ? {
+            who: quote.who,
+            preview: quote.preview,
+            content: quote.content || '',
+            mode: quoteMode || 'quote',
+          }
+        : null,
+    };
     const aiId = uid();
     this.pushMessages(
       [userMsg, { id: aiId, role: 'ai', content: '', loading: true }],
@@ -1097,6 +1352,9 @@ Page({
         input: '',
         canSend: false,
         busy: true,
+        quoteMsg: null,
+        quoteMode: '',
+        editingMsgId: '',
       }
     );
 
@@ -1113,7 +1371,7 @@ Page({
           messages: [
             { role: 'system', content: systemPrompt(skill, mask) },
             ...history,
-            { role: 'user', content: text },
+            { role: 'user', content: apiText },
           ],
         },
         success: (res) => {
@@ -1212,8 +1470,10 @@ Page({
         if (data.image) {
           this.updateMessage(aiId, {
             loading: false,
-            content: '',
+            content: imageDoneNote(prompt, 'generate'),
             image: this.absoluteImageUrl(data.image),
+            imagePrompt: prompt,
+            imageKind: 'generate',
           });
           this.setData({ busy: false }, () => this.saveCurrentSession());
           return;
@@ -1223,7 +1483,7 @@ Page({
             loading: true,
             content: '呆呆 AI 作图中，请稍候…',
           });
-          this.pollImageJob(apiBase, data.jobId, aiId, prompt);
+          this.pollImageJob(apiBase, data.jobId, aiId, prompt, 'generate');
           return;
         }
         const info = formatImageFail(res, data, prompt);
@@ -1266,7 +1526,8 @@ Page({
     });
   },
 
-  pollImageJob(apiBase, jobId, aiId, prompt) {
+  pollImageJob(apiBase, jobId, aiId, prompt, kind) {
+    const imageKind = kind === 'edit' ? 'edit' : 'generate';
     const base = apiBase.replace(/\/$/, '');
     const started = Date.now();
     const maxMs = 180000;
@@ -1288,8 +1549,10 @@ Page({
           if (data.status === 'done' && data.image) {
             this.updateMessage(aiId, {
               loading: false,
-              content: '',
+              content: imageDoneNote(prompt, imageKind),
               image: this.absoluteImageUrl(data.image),
+              imagePrompt: prompt,
+              imageKind,
             });
             this.setData({ busy: false }, () => this.saveCurrentSession());
             return;
@@ -1309,7 +1572,7 @@ Page({
           }
           this.updateMessage(aiId, {
             loading: true,
-            content: '呆呆 AI 作图中，请稍候…',
+            content: imageKind === 'edit' ? '呆呆 AI 改图中，请稍候…' : '呆呆 AI 作图中，请稍候…',
           });
           setTimeout(tick, 2000);
         },
@@ -1384,8 +1647,10 @@ Page({
         if (data.image) {
           this.updateMessage(aiId, {
             loading: false,
-            content: '',
+            content: imageDoneNote(prompt, 'edit'),
             image: this.absoluteImageUrl(data.image),
+            imagePrompt: prompt,
+            imageKind: 'edit',
           });
           this.setData({ busy: false }, () => this.saveCurrentSession());
           return;
@@ -1395,7 +1660,7 @@ Page({
             loading: true,
             content: '呆呆 AI 改图中，请稍候…',
           });
-          this.pollImageJob(apiBase, data.jobId, aiId, prompt);
+          this.pollImageJob(apiBase, data.jobId, aiId, prompt, 'edit');
           return;
         }
         const rawMsg =

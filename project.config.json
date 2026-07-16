@@ -1,6 +1,19 @@
 {
-  "description": "呆呆网络 AI 小程序",
-  "miniprogramRoot": "./",
+  "description": "呆呆网络 · 从仓库根目录打开时用此配置",
+  "miniprogramRoot": "miniprogram/",
+  "compileType": "miniprogram",
+  "libVersion": "3.7.12",
+  "appid": "wxdf3dcb6c1680f134",
+  "projectname": "daidaiyx-ai",
+  "setting": {
+    "es6": true,
+    "postcss": true,
+    "minified": true,
+    "urlCheck": false,
+    "compileHotReLoad": true,
+    "coverView": true,
+    "enhance": true
+  },
   "packOptions": {
     "ignore": [
       { "type": "folder", "value": "colorui" },
@@ -18,19 +31,5 @@
     ],
     "include": []
   },
-  "setting": {
-    "bundle": false,
-    "es6": true,
-    "postcss": true,
-    "minified": true,
-    "urlCheck": false,
-    "compileHotReLoad": true,
-    "coverView": true,
-    "enhance": true
-  },
-  "compileType": "miniprogram",
-  "libVersion": "3.7.12",
-  "appid": "wxdf3dcb6c1680f134",
-  "projectname": "daidaiyx-ai",
   "condition": {}
 }

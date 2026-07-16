@@ -40,7 +40,6 @@
     <scroll-view
       class="scroll"
       scroll-y
-      enhanced
       show-scrollbar="{{false}}"
       scroll-into-view="{{scrollInto}}"
       scroll-with-animation

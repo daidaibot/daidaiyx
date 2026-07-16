@@ -76,15 +76,24 @@
         <view class="row {{item.role === 'user' ? 'mine' : 'ai'}}" id="m-{{item.id}}">
           <view wx:if="{{item.role !== 'user'}}" class="avatar">{{welcomeEmoji}}</view>
           <view class="bubble-wrap">
-            <view class="bubble {{item.role}}">
+            <view
+              class="bubble {{item.role}}"
+              data-id="{{item.id}}"
+              bindlongpress="onMsgLongPress"
+              bindtap="onMsgTap"
+            >
+              <view wx:if="{{item.quote}}" class="quote-chip in-bubble">
+                <text class="quote-chip-who">{{item.quote.who}}</text>
+                <text class="quote-chip-text">{{item.quote.preview}}</text>
+              </view>
               <text wx:if="{{item.content}}" class="bubble-text" user-select>{{item.content}}</text>
               <image
                 wx:if="{{item.image}}"
                 class="bubble-img"
                 src="{{item.image}}"
                 mode="widthFix"
-                show-menu-by-longpress="{{true}}"
-                bindtap="previewImage"
+                show-menu-by-longpress="{{false}}"
+                catchtap="previewImage"
                 data-src="{{item.image}}"
               />
               <view wx:if="{{item.loading}}" class="typing">
@@ -112,6 +121,18 @@
   </view>
 
   <view class="composer {{activeSkill === 'edit' ? 'edit-mode' : ''}}">
+    <view class="quote-bar" wx:if="{{quoteMsg}}">
+      <view class="quote-bar-main">
+        <text class="quote-bar-label">{{quoteMode === 'reply' ? '回复' : '引用'}}</text>
+        <text class="quote-bar-who">{{quoteMsg.who}}</text>
+        <text class="quote-bar-text">{{quoteMsg.preview}}</text>
+      </view>
+      <view class="quote-bar-x" bindtap="clearQuote">×</view>
+    </view>
+    <view class="edit-bar" wx:if="{{editingMsgId}}">
+      <text class="edit-bar-label">修改消息</text>
+      <view class="edit-bar-x" bindtap="clearEditing">取消</view>
+    </view>
     <view class="tag-row" wx:if="{{(activeSkill && activeSkill !== 'edit') || activeMask}}">
       <view class="skill-tag" wx:if="{{activeSkill && activeSkill !== 'edit'}}" bindtap="clearSkill">
         <text>{{skillLabel}}</text>
@@ -343,5 +364,15 @@
     </view>
     <button class="login-btn" loading="{{loginLoading}}" bindtap="onLogin">跳转微信授权登录</button>
     <view class="login-cancel" bindtap="closeLogin">稍后再说</view>
+  </view>
+</view>
+
+<!-- 长按消息菜单（仿微信：回复 / 引用 / 修改 / 复制） -->
+<view class="msg-menu-mask" wx:if="{{showMsgMenu}}" bindtap="closeMsgMenu" catchtouchmove="noop">
+  <view class="msg-menu" style="top: {{msgMenuTop}}px; left: {{msgMenuLeft}}px;" catchtap="noop">
+    <view class="msg-menu-item" data-act="reply" bindtap="onMsgMenuAct">回复</view>
+    <view class="msg-menu-item" data-act="quote" bindtap="onMsgMenuAct">引用</view>
+    <view class="msg-menu-item" wx:if="{{msgMenuCanEdit}}" data-act="edit" bindtap="onMsgMenuAct">修改</view>
+    <view class="msg-menu-item" data-act="copy" bindtap="onMsgMenuAct">复制</view>
   </view>
 </view>

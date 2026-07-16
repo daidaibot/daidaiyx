@@ -5,17 +5,17 @@ App({
     user: null,
     token: '',
     /**
-     * 云托管公网域名（不要末尾斜杠）
-     * 需与 DAIDAI_API_BASE、小程序 request 合法域名一致
+     * 业务域名（不要末尾斜杠）
+     * 需与 DAIDAI_API_BASE、小程序 request / downloadFile 合法域名一致
      */
-    apiBase: 'https://daidai12-282126-9-1453974162.sh.run.tcloudbase.com',
+    apiBase: 'https://dai.52xv.com',
   },
   onLaunch() {
     try {
-      const savedBase = wx.getStorageSync('daidai_api_base');
-      if (savedBase && !this.globalData.apiBase) {
-        this.globalData.apiBase = String(savedBase).replace(/\/$/, '');
-      }
+      // 强制使用当前代码里的域名；清掉旧云托管域名缓存
+      const fixed = 'https://dai.52xv.com';
+      this.globalData.apiBase = fixed;
+      wx.setStorageSync('daidai_api_base', fixed);
       const user = wx.getStorageSync('daidai_user');
       const token = wx.getStorageSync('daidai_token');
       if (user && token) {

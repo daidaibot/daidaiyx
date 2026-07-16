@@ -17,7 +17,7 @@
 
   DAIDAI_IMAGE_BASE_URL=http://154.12.94.236
   DAIDAI_IMAGE_KEY=sk-你的OpenAI密钥
-  DAIDAI_API_BASE=https://daidai12-282126-9-1453974162.sh.run.tcloudbase.com
+  DAIDAI_API_BASE=https://dai.52xv.com
 
 不要给 BASE_URL 加 /v1。Node 会自己拼：
   POST {DAIDAI_IMAGE_BASE_URL}/v1/images/generations
@@ -31,10 +31,10 @@
 二、小程序
 --------------------------------------------------------------------------------
 
-miniprogram/app.js → apiBase 已写死为上面的云托管域名。
-还需在微信公众平台把该域名加入 request 合法域名（https）。
+miniprogram/app.js → apiBase 已写死为 https://dai.52xv.com。
+还需在微信公众平台把该域名加入 request / downloadFile 合法域名（https）。
 
-小程序不要填 VPS IP；只连云托管。
+小程序不要填 VPS IP；只连业务域名。
 
 
 --------------------------------------------------------------------------------

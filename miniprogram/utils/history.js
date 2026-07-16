@@ -1,6 +1,7 @@
 const INDEX_KEY = 'daidai_chat_index';
 const MAX_SESSIONS = 40;
 const MAX_MESSAGES = 120;
+const historySync = require('./historySync');
 
 function storageKey(openid) {
   return openid ? `${INDEX_KEY}_${openid}` : INDEX_KEY;
@@ -67,6 +68,9 @@ function sanitizeMessages(messages) {
         role: m.role === 'user' ? 'user' : 'ai',
         content: m.content || '',
         image: m.image || '',
+        quote: m.quote || null,
+        imagePrompt: m.imagePrompt || '',
+        imageKind: m.imageKind || '',
       })
     );
 }
@@ -120,7 +124,7 @@ function saveSession(payload, openid) {
       maskPrompt: (payload.meta && payload.meta.maskPrompt) || '',
       welcomeEmoji: (payload.meta && payload.meta.welcomeEmoji) || '呆',
       navSub: (payload.meta && payload.meta.navSub) || '随时帮忙',
-      imageSize: (payload.meta && payload.meta.imageSize) || '1024x1024',
+      imageSize: (payload.meta && payload.meta.imageSize) || '1152x1536',
     },
   };
 
@@ -148,6 +152,7 @@ function saveSession(payload, openid) {
     updatedAt,
   });
   saveIndex(list, oid);
+  historySync.pushSession(body).catch(() => {});
   return list;
 }
 
@@ -179,6 +184,7 @@ function removeSession(id, openid) {
   }
   const list = loadIndex(oid).filter((s) => s.id !== id);
   saveIndex(list, oid);
+  historySync.removeRemoteSession(id).catch(() => {});
   return list;
 }
 
@@ -200,6 +206,43 @@ function loadHistory(openid) {
   return loadIndex(openid);
 }
 
+async function loadHistoryFromServer(openid) {
+  const remote = await historySync.fetchSessions();
+  if (!remote || !remote.length) return loadHistory(openid);
+  const oid = openid || getOpenId();
+  saveIndex(remote, oid);
+  return remote;
+}
+
+async function openSessionFromServer(id, openid) {
+  const remote = await historySync.fetchSession(id);
+  if (!remote || !remote.id) return getSession(id, openid);
+  const oid = openid || getOpenId();
+  try {
+    wx.setStorageSync(sessionKey(oid, remote.id), remote);
+  } catch (e) {
+    console.warn('openSessionFromServer cache failed', e);
+  }
+  return remote;
+}
+
+async function syncAllLocalToServer(openid) {
+  const oid = openid || getOpenId();
+  const list = loadIndex(oid);
+  const sessions = [];
+  for (const item of list) {
+    const full = getSession(item.id, oid);
+    if (full && full.messages && full.messages.length) sessions.push(full);
+  }
+  if (!sessions.length) return list;
+  const remote = await historySync.syncLocalSessions(sessions);
+  if (remote && remote.length) {
+    saveIndex(remote, oid);
+    return remote;
+  }
+  return list;
+}
+
 function upsertSession(session, openid) {
   // 兼容旧调用：若只传摘要，尽量补全已有消息体
   const oid = openid || getOpenId();
@@ -219,6 +262,9 @@ function upsertSession(session, openid) {
 
 module.exports = {
   loadHistory,
+  loadHistoryFromServer,
+  openSessionFromServer,
+  syncAllLocalToServer,
   loadIndex,
   saveSession,
   getSession,

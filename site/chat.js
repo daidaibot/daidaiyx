@@ -29,10 +29,13 @@
     messages: [],
     activeSkill: "",
     activeMask: "",
-    imageSize: "1024x1024",
+    imageSize: "1152x1536",
     editImage: "",
     busy: false,
     sessionId: uid(),
+    quoteMsg: null,
+    quoteMode: "",
+    editingMsgId: "",
   };
 
   function uid() {
@@ -90,13 +93,59 @@
   function systemPrompt(skill, mask) {
     const brand =
       "你是「呆呆 AI」，由呆呆网络提供。对外只称呼自己为呆呆 AI，不要提及任何底层模型、厂商或 API 名称。" +
-      "不要说自己无法生成图片，也不要推荐其他绘画工具；需要出图时系统会走生图能力。";
+      "不要说自己无法生成图片，也不要推荐其他绘画工具；需要出图时系统会走生图能力。" +
+      "对话历史里若出现「【已生成图片】」或「【已改图】」，表示图片已经成功生成并展示给用户；" +
+      "用户再问「看到了吗 / 这张图 / 照片」时，必须明确确认图片已生成且你清楚刚才的出图结果，禁止再说「还没生成 / 系统暂时没图 / 请稍等马上就来」。";
     if (mask && mask.prompt) return `${brand}\n当前角色面具要求：\n${mask.prompt}`;
     if (skill === "write") return `${brand}\n你擅长写作、文案与润色。`;
     if (skill === "translate") return `${brand}\n你擅长中英互译，译文自然流畅。`;
     if (skill === "code") return `${brand}\n你擅长编程：给出可运行代码并简要说明。`;
     if (skill === "summary") return `${brand}\n你擅长总结提炼要点。`;
     return `${brand}\n请简洁友好、乐于助人。`;
+  }
+
+  function imageDoneNote(prompt, kind) {
+    const p = String(prompt || "")
+      .replace(/^🎨\s*/, "")
+      .replace(/^🖌️\s*/, "")
+      .trim()
+      .slice(0, 80);
+    if (kind === "edit") {
+      return p ? `已按你的要求改好图：「${p}」。` : "已按你的要求改好图。";
+    }
+    return p ? `已生成图片：「${p}」。` : "已生成图片。";
+  }
+
+  function messagesToChatHistory(messages) {
+    const list = Array.isArray(messages) ? messages : [];
+    return list
+      .filter((m) => m && !m.loading && (m.content || m.image))
+      .slice(-16)
+      .map((m) => {
+        if (m.role === "user") {
+          let content = String(m.content || "");
+          if (m.image && !content) content = "【用户上传了一张图片，用于改图】";
+          else if (m.image) content = `${content}\n（用户附带了一张参考图）`;
+          if (m.quote) content = buildQuotedContent(content, m.quote, m.quote.mode || "quote");
+          return { role: "user", content };
+        }
+        if (m.image) {
+          const kind = m.imageKind === "edit" ? "edit" : "generate";
+          const tag = kind === "edit" ? "【已改图】" : "【已生成图片】";
+          const note =
+            m.content && !/正在|请稍候|作图中|改图中/.test(m.content)
+              ? String(m.content)
+              : imageDoneNote(m.imagePrompt || "", kind);
+          return {
+            role: "assistant",
+            content:
+              `${tag}${note}` +
+              "图片已展示在对话里。若用户问起这张图，请确认已生成成功，并围绕该出图结果继续聊。",
+          };
+        }
+        return { role: "assistant", content: String(m.content || "") };
+      })
+      .filter((m) => m.content);
   }
 
   function looksLikeImageRequest(text) {
@@ -291,25 +340,239 @@
     return `<img class="bubble-img" src="${u}" alt="" data-img="${u}" />`;
   }
 
-  async function downloadImageFile(src) {
+  function msgPreview(msg) {
+    if (!msg) return "";
+    if (msg.content) return String(msg.content).replace(/\s+/g, " ").trim().slice(0, 80);
+    if (msg.image) return "[图片]";
+    return "";
+  }
+
+  function msgWho(msg) {
+    return msg && msg.role === "user" ? "我" : "呆呆 AI";
+  }
+
+  function buildQuotedContent(text, quote, mode) {
+    if (!quote) return text;
+    const label = mode === "reply" ? "回复" : "引用";
+    const snippet = quote.content
+      ? String(quote.content).slice(0, 200)
+      : quote.image
+        ? "[图片]"
+        : quote.preview || "";
+    return `${label}「${quote.who || ""}」：\n> ${snippet}\n\n${text}`;
+  }
+
+  function quoteChipHtml(quote) {
+    if (!quote) return "";
+    return `<div class="quote-chip in-bubble"><div class="quote-chip-who">${escapeHtml(
+      quote.who || ""
+    )}</div><div class="quote-chip-text">${escapeHtml(quote.preview || "")}</div></div>`;
+  }
+
+  function updateQuoteBar() {
+    let bar = $("quoteBar");
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.id = "quoteBar";
+      bar.className = "quote-bar hidden";
+      const composer = $("composer");
+      const tagRow = $("tagRow");
+      if (composer) composer.insertBefore(bar, tagRow || composer.firstChild);
+    }
+    if (!state.quoteMsg) {
+      bar.classList.add("hidden");
+      bar.innerHTML = "";
+      return;
+    }
+    bar.classList.remove("hidden");
+    bar.innerHTML = `<div class="quote-bar-main"><span class="quote-bar-label">${
+      state.quoteMode === "reply" ? "回复" : "引用"
+    }</span><span class="quote-bar-who">${escapeHtml(
+      state.quoteMsg.who || ""
+    )}</span><span class="quote-bar-text">${escapeHtml(
+      state.quoteMsg.preview || ""
+    )}</span></div><button type="button" class="quote-bar-x" id="quoteBarX">×</button>`;
+    const x = $("quoteBarX");
+    if (x) {
+      x.onclick = () => {
+        state.quoteMsg = null;
+        state.quoteMode = "";
+        updateQuoteBar();
+      };
+    }
+  }
+
+  function updateEditBar() {
+    let bar = $("editBar");
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.id = "editBar";
+      bar.className = "edit-bar hidden";
+      const composer = $("composer");
+      const tagRow = $("tagRow");
+      if (composer) composer.insertBefore(bar, tagRow || composer.firstChild);
+    }
+    if (!state.editingMsgId) {
+      bar.classList.add("hidden");
+      bar.innerHTML = "";
+      return;
+    }
+    bar.classList.remove("hidden");
+    bar.innerHTML = `<span class="edit-bar-label">修改消息</span><button type="button" class="edit-bar-x" id="editBarX">取消</button>`;
+    const x = $("editBarX");
+    if (x) {
+      x.onclick = () => {
+        state.editingMsgId = "";
+        $("input").value = "";
+        updateEditBar();
+        updateChrome();
+      };
+    }
+  }
+
+  function ensureMsgMenu() {
+    let menu = $("msgMenu");
+    if (menu) return menu;
+    menu = document.createElement("div");
+    menu.id = "msgMenu";
+    menu.className = "msg-menu hidden";
+    document.body.appendChild(menu);
+    menu.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const btn = e.target.closest("[data-act]");
+      if (!btn) return;
+      onMsgMenuAct(btn.getAttribute("data-act"));
+    });
+    menu.addEventListener("contextmenu", (e) => e.preventDefault());
+    return menu;
+  }
+
+  let _menuMsg = null;
+  let _ignoreDocCloseUntil = 0;
+
+  function showMsgMenu(msg, x, y) {
+    if (!msg || msg.loading) return;
+    _menuMsg = msg;
+    _ignoreDocCloseUntil = Date.now() + 450;
+    const menu = ensureMsgMenu();
+    const items = [
+      `<button type="button" data-act="reply">回复</button>`,
+      `<button type="button" data-act="quote">引用</button>`,
+    ];
+    if (msg.role === "user" && msg.content) {
+      items.push(`<button type="button" data-act="edit">修改</button>`);
+    }
+    items.push(`<button type="button" data-act="copy">复制</button>`);
+    menu.innerHTML = items.join("");
+    menu.classList.remove("hidden");
+    menu.style.visibility = "hidden";
+    menu.style.left = "0px";
+    menu.style.top = "0px";
+    const rect = menu.getBoundingClientRect();
+    const pad = 8;
+    let left = Number(x) || 80;
+    let top = (Number(y) || 120) - rect.height - 10;
+    left = Math.max(pad, Math.min(left, window.innerWidth - rect.width - pad));
+    top = Math.max(pad, Math.min(top, window.innerHeight - rect.height - pad));
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+    menu.style.visibility = "visible";
+  }
+
+  function hideMsgMenu() {
+    const menu = $("msgMenu");
+    if (menu) menu.classList.add("hidden");
+    _menuMsg = null;
+  }
+
+  function openMsgMenuById(id, x, y) {
+    const msg = state.messages.find((m) => m.id === id);
+    if (!msg || msg.loading) return;
+    showMsgMenu(msg, x, y);
+  }
+
+  function onMsgMenuAct(act) {
+    const msg = _menuMsg;
+    hideMsgMenu();
+    if (!msg) return;
+    if (act === "copy") {
+      const text = msg.content || msg.image || "";
+      if (!text) return;
+      navigator.clipboard?.writeText(String(text)).then(
+        () => {},
+        () => {
+          const ta = document.createElement("textarea");
+          ta.value = String(text);
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          ta.remove();
+        }
+      );
+      return;
+    }
+    if (act === "reply" || act === "quote") {
+      state.quoteMsg = {
+        id: msg.id,
+        who: msgWho(msg),
+        preview: msgPreview(msg),
+        content: msg.content || "",
+        image: msg.image || "",
+      };
+      state.quoteMode = act;
+      state.editingMsgId = "";
+      updateQuoteBar();
+      updateEditBar();
+      $("input").focus();
+      return;
+    }
+    if (act === "edit") {
+      if (msg.role !== "user" || !msg.content) return;
+      state.editingMsgId = msg.id;
+      state.quoteMsg = null;
+      state.quoteMode = "";
+      $("input").value = msg.content;
+      updateQuoteBar();
+      updateEditBar();
+      updateChrome();
+      $("input").focus();
+    }
+  }
+
+  function renderMessages() {
+    $("welcome").classList.toggle("hidden", state.messages.length > 0);
+    $("msgList").innerHTML = state.messages
+      .map((m) => {
+        if (m.role === "user") {
+          return `<div class="row mine" data-mid="${escapeHtml(m.id)}"><div class="bubble-wrap"><div class="bubble user" data-mid="${escapeHtml(
+            m.id
+          )}">${quoteChipHtml(m.quote)}${escapeHtml(
+            m.content || ""
+          )}${m.image ? imageBlock(m.image) : ""}</div></div></div>`;
+        }
+        const emoji = (findMask(state.activeMask) || {}).emoji || "呆";
+        return `<div class="row ai" data-mid="${escapeHtml(m.id)}"><div class="avatar">${emoji.length <= 2 ? emoji : "呆"}</div><div class="bubble-wrap"><div class="bubble ai" data-mid="${escapeHtml(
+          m.id
+        )}">${
+          m.loading
+            ? '<div class="typing"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>'
+            : `${quoteChipHtml(m.quote)}${escapeHtml(m.content || "")}`
+        }${m.image ? imageBlock(m.image) : ""}</div></div></div>`;
+      })
+      .join("");
+    $("bottom").scrollIntoView({ behavior: "smooth", block: "end" });
+  }
+
+  function downloadImageFile(src) {
     const url = String(src || "").trim();
     if (!url) return;
-    try {
-      const join = url.includes("?") ? "&" : "?";
-      const res = await fetch(`${url}${join}download=1`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      const obj = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = obj;
-      a.download = "daidai-ai.jpg";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(obj);
-    } catch {
-      window.open(url, "_blank", "noopener");
-    }
+    const join = url.includes("?") ? "&" : "?";
+    const a = document.createElement("a");
+    a.href = `${url}${join}download=1`;
+    a.download = "daidai-ai.jpg";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   }
 
   function openImageLightbox(src) {
@@ -330,24 +593,84 @@
     document.body.style.overflow = "";
   }
 
-  function renderMessages() {
-    $("welcome").classList.toggle("hidden", state.messages.length > 0);
-    $("msgList").innerHTML = state.messages
-      .map((m) => {
-        if (m.role === "user") {
-          return `<div class="row mine"><div class="bubble-wrap"><div class="bubble user">${escapeHtml(
-            m.content || ""
-          )}${m.image ? imageBlock(m.image) : ""}</div></div></div>`;
-        }
-        const emoji = (findMask(state.activeMask) || {}).emoji || "呆";
-        return `<div class="row ai"><div class="avatar">${emoji.length <= 2 ? emoji : "呆"}</div><div class="bubble-wrap"><div class="bubble ai">${
-          m.loading
-            ? '<div class="typing"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>'
-            : escapeHtml(m.content || "")
-        }${m.image ? imageBlock(m.image) : ""}</div></div></div>`;
-      })
-      .join("");
-    $("bottom").scrollIntoView({ behavior: "smooth", block: "end" });
+  function authHeaders() {
+    const u = getUser();
+    const token = (u && (u.token || u.openid)) || "";
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
+  async function apiJson(url, options = {}) {
+    const res = await fetch(url, {
+      ...options,
+      headers: Object.assign(
+        { "Content-Type": "application/json" },
+        authHeaders(),
+        options.headers || {}
+      ),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) {
+      throw new Error((data.error && data.error.message) || `HTTP ${res.status}`);
+    }
+    return data;
+  }
+
+  async function fetchRemoteSessions() {
+    if (!loggedIn()) return null;
+    try {
+      const data = await apiJson("/api/chat/sessions");
+      return data.sessions || [];
+    } catch (e) {
+      console.warn("fetchRemoteSessions", e.message);
+      return null;
+    }
+  }
+
+  async function pushRemoteSession(body) {
+    if (!loggedIn() || !body || !body.id) return null;
+    try {
+      const data = await apiJson(`/api/chat/sessions/${encodeURIComponent(body.id)}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          title: body.title,
+          preview: body.preview,
+          messages: body.messages,
+          meta: body.meta || {},
+        }),
+      });
+      return data.sessions || null;
+    } catch (e) {
+      console.warn("pushRemoteSession", e.message);
+      return null;
+    }
+  }
+
+  async function syncLocalSessionsToServer() {
+    if (!loggedIn()) return null;
+    const idx = loadHistIndex();
+    const sessions = [];
+    for (const item of idx) {
+      try {
+        const body = JSON.parse(localStorage.getItem(SESS_PREFIX + item.id) || "null");
+        if (body && body.messages && body.messages.length) sessions.push(body);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (!sessions.length) return idx;
+    try {
+      const data = await apiJson("/api/chat/sync", {
+        method: "POST",
+        body: JSON.stringify({ sessions }),
+      });
+      if (data.sessions && data.sessions.length) {
+        localStorage.setItem(HIST_KEY, JSON.stringify(data.sessions));
+        return data.sessions;
+      }
+    } catch (e) {
+      console.warn("syncLocalSessionsToServer", e.message);
+    }
+    return idx;
   }
 
   function loadHistIndex() {
@@ -369,9 +692,16 @@
     idx.unshift({ id: state.sessionId, title, updatedAt: body.updatedAt });
     idx = idx.slice(0, 30);
     localStorage.setItem(HIST_KEY, JSON.stringify(idx));
+    pushRemoteSession(body).catch(() => {});
   }
 
-  function renderHistory() {
+  async function renderHistory() {
+    if (loggedIn()) {
+      const remote = await fetchRemoteSessions();
+      if (remote && remote.length) {
+        localStorage.setItem(HIST_KEY, JSON.stringify(remote));
+      }
+    }
     const idx = loadHistIndex();
     $("histList").innerHTML = idx.length
       ? idx
@@ -386,8 +716,7 @@
   }
 
   function openSession(id) {
-    try {
-      const body = JSON.parse(localStorage.getItem(SESS_PREFIX + id) || "null");
+    const apply = (body) => {
       if (!body) return;
       state.sessionId = id;
       state.messages = body.messages || [];
@@ -396,6 +725,22 @@
       renderMessages();
       updateChrome();
       closeDrawer();
+    };
+    try {
+      const local = JSON.parse(localStorage.getItem(SESS_PREFIX + id) || "null");
+      if (loggedIn()) {
+        apiJson(`/api/chat/sessions/${encodeURIComponent(id)}`)
+          .then((data) => {
+            const body = data.session || local;
+            if (body) {
+              localStorage.setItem(SESS_PREFIX + id, JSON.stringify(body));
+              apply(body);
+            }
+          })
+          .catch(() => apply(local));
+        return;
+      }
+      apply(local);
     } catch {
       /* ignore */
     }
@@ -418,9 +763,20 @@
     if (!requireLogin()) return;
     state.activeSkill = id;
     if (id !== "edit") state.editImage = "";
+    if (id === "edit") state.imageSize = "1152x1536";
+    else if (id === "image") state.imageSize = "1152x1536";
     renderSkills();
     updateChrome();
+    syncRatioButtons();
     closeSheet();
+  }
+
+  function syncRatioButtons() {
+    const bar = $("imgBar");
+    if (!bar) return;
+    bar.querySelectorAll(".ratio").forEach((el) => {
+      el.classList.toggle("on", el.getAttribute("data-size") === state.imageSize);
+    });
   }
 
   function setMask(id) {
@@ -482,6 +838,17 @@
     if (state.busy) return;
     if (!requireLogin()) return;
     const text = $("input").value.trim();
+    if (state.editingMsgId) {
+      if (!text) return;
+      const idx = state.messages.findIndex((m) => m.id === state.editingMsgId);
+      if (idx >= 0) state.messages = state.messages.slice(0, idx);
+      state.editingMsgId = "";
+      state.quoteMsg = null;
+      state.quoteMode = "";
+      updateQuoteBar();
+      updateEditBar();
+      return sendChat(text);
+    }
     if (state.activeSkill === "image") {
       if (!text) return;
       return sendImage(stripImageCue(text));
@@ -497,6 +864,8 @@
     if (!text) return;
     if (looksLikeImageRequest(text)) {
       state.activeSkill = "image";
+      state.imageSize = "1152x1536";
+      syncRatioButtons();
       updateChrome();
       return sendImage(stripImageCue(text));
     }
@@ -521,12 +890,27 @@
   async function sendChat(text) {
     const skill = state.activeSkill;
     const mask = findMask(state.activeMask);
-    const history = state.messages
-      .filter((m) => m.content && !m.loading)
-      .slice(-12)
-      .map((m) => ({ role: m.role === "user" ? "user" : "assistant", content: m.content }));
-    const userMsg = { id: uid(), role: "user", content: text };
+    const quote = state.quoteMsg;
+    const quoteMode = state.quoteMode;
+    const apiText = buildQuotedContent(text, quote, quoteMode);
+    const history = messagesToChatHistory(state.messages);
+    const userMsg = {
+      id: uid(),
+      role: "user",
+      content: text,
+      quote: quote
+        ? {
+            who: quote.who,
+            preview: quote.preview,
+            content: quote.content || "",
+            mode: quoteMode || "quote",
+          }
+        : null,
+    };
     const aiId = uid();
+    state.quoteMsg = null;
+    state.quoteMode = "";
+    updateQuoteBar();
     pushPair(userMsg, { id: aiId, role: "ai", content: "", loading: true });
 
     try {
@@ -538,7 +922,7 @@
           messages: [
             { role: "system", content: systemPrompt(skill, mask) },
             ...history,
-            { role: "user", content: text },
+            { role: "user", content: apiText },
           ],
         }),
       });
@@ -604,7 +988,13 @@
       const data = await res.json().catch(() => ({}));
       const jobId = data.jobId || data.job_id || data.id;
       if (data.image) {
-        updateMsg(aiId, { loading: false, content: "", image: data.image });
+        updateMsg(aiId, {
+          loading: false,
+          content: imageDoneNote(prompt, "generate"),
+          image: data.image,
+          imagePrompt: prompt,
+          imageKind: "generate",
+        });
       } else if (data.pending || jobId) {
         if (!jobId) {
           throw new Error("生图任务已受理但未返回 jobId，请重新部署后端");
@@ -613,7 +1003,13 @@
         const job = await pollImageJob(jobId, () => {
           updateMsg(aiId, { loading: true, content: "呆呆 AI 作图中，请稍候…" });
         });
-        updateMsg(aiId, { loading: false, content: "", image: job.image });
+        updateMsg(aiId, {
+          loading: false,
+          content: imageDoneNote(prompt, "generate"),
+          image: job.image,
+          imagePrompt: prompt,
+          imageKind: "generate",
+        });
       } else {
         const rawMsg = data?.error?.message || "";
         const errId = data?.error?.id || "";
@@ -674,13 +1070,25 @@
       });
       const data = await res.json().catch(() => ({}));
       if (data.image) {
-        updateMsg(aiId, { loading: false, content: "", image: data.image });
+        updateMsg(aiId, {
+          loading: false,
+          content: imageDoneNote(prompt, "edit"),
+          image: data.image,
+          imagePrompt: prompt,
+          imageKind: "edit",
+        });
       } else if (data.pending && (data.jobId || data.id)) {
         updateMsg(aiId, { loading: true, content: "呆呆 AI 改图中，请稍候…" });
         const job = await pollImageJob(data.jobId || data.id, () => {
           updateMsg(aiId, { loading: true, content: "呆呆 AI 改图中，请稍候…" });
         });
-        updateMsg(aiId, { loading: false, content: "", image: job.image });
+        updateMsg(aiId, {
+          loading: false,
+          content: imageDoneNote(prompt, "edit"),
+          image: job.image,
+          imagePrompt: prompt,
+          imageKind: "edit",
+        });
       } else {
         const tip = friendlyError(data?.error?.message) || "改图失败，请稍后再试";
         reportClientError({
@@ -759,6 +1167,9 @@
       $("pwdInput").value = "";
       closeLogin();
       updateChrome();
+      syncLocalSessionsToServer()
+        .then(() => renderHistory())
+        .catch(() => renderHistory());
     } catch {
       err.textContent = "网络错误，请稍后再试";
     }
@@ -810,6 +1221,8 @@
     reader.onload = () => {
       state.editImage = String(reader.result || "");
       state.activeSkill = "edit";
+      state.imageSize = "1152x1536";
+      syncRatioButtons();
       renderSkills();
       updateChrome();
     };
@@ -832,6 +1245,8 @@
     if (item.dataset.sheet === "masks") return openMaskPanel();
     if (item.dataset.sheet === "edit") {
       state.activeSkill = "edit";
+      state.imageSize = "1152x1536";
+      syncRatioButtons();
       renderSkills();
       updateChrome();
       closeSheet();
@@ -883,6 +1298,47 @@
   $("msgList").addEventListener("click", (e) => {
     const img = e.target.closest("img.bubble-img[data-img]");
     if (img) openImageLightbox(img.getAttribute("data-img"));
+  });
+
+  // 右键气泡弹出菜单（阻止浏览器默认菜单）
+  const onContextMenu = (e) => {
+    const bubble = e.target.closest(".bubble[data-mid]");
+    const row = e.target.closest(".row[data-mid]");
+    const el = bubble || row;
+    if (!el) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openMsgMenuById(el.getAttribute("data-mid"), e.clientX, e.clientY);
+  };
+  $("msgList").addEventListener("contextmenu", onContextMenu);
+  if ($("msgs")) $("msgs").addEventListener("contextmenu", onContextMenu);
+
+  document.addEventListener("click", (e) => {
+    if (Date.now() < _ignoreDocCloseUntil) return;
+    if (e.target.closest && e.target.closest("#msgMenu")) return;
+    hideMsgMenu();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") hideMsgMenu();
+  });
+
+  // 手机端长按
+  let _lpTimer = null;
+  $("msgList").addEventListener("touchstart", (e) => {
+    const bubble = e.target.closest(".bubble[data-mid]");
+    if (!bubble) return;
+    const touch = e.touches[0];
+    _lpTimer = setTimeout(() => {
+      openMsgMenuById(bubble.getAttribute("data-mid"), touch.clientX, touch.clientY);
+    }, 480);
+  });
+  $("msgList").addEventListener("touchend", () => {
+    if (_lpTimer) clearTimeout(_lpTimer);
+    _lpTimer = null;
+  });
+  $("msgList").addEventListener("touchmove", () => {
+    if (_lpTimer) clearTimeout(_lpTimer);
+    _lpTimer = null;
   });
   if ($("imgLbClose")) $("imgLbClose").onclick = closeImageLightbox;
   if ($("imgLbDl")) {

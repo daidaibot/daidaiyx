@@ -1,9 +1,14 @@
 ﻿const path = require("path");
 const fs = require("fs");
+const https = require("https");
 const express = require("express");
 const ops = require("./lib/ops");
 const imageOut = require("./lib/imageOut");
 const imageJobs = require("./lib/imageJobs");
+const db = require("./lib/db");
+const authStore = require("./lib/authStore");
+const chatStore = require("./lib/chatStore");
+const cosStore = require("./lib/cosStore");
 const { outboundFetch, hasOutboundProxy, maskProxy, reloadProxies, proxyCount, seedProxiesToDataDir } = require("./lib/outbound");
 
 const app = express();
@@ -32,14 +37,43 @@ app.use(express.json({ limit: "20mb" }));
 app.use(ops.requestLogger);
 app.use(maintenanceApiGate);
 
-const WECHAT_APPID = process.env.WECHAT_APPID || process.env.WX_APPID || "";
-const WECHAT_SECRET = process.env.WECHAT_SECRET || process.env.WX_SECRET || "";
+const WECHAT_APPID = String(
+  process.env.WECHAT_APPID || process.env.WX_APPID || ""
+).trim();
+const WECHAT_SECRET = String(
+  process.env.WECHAT_SECRET || process.env.WX_SECRET || ""
+).trim();
 const ALLOW_DEV_LOGIN = process.env.ALLOW_DEV_LOGIN === "1";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
 /** 网页端仅本人使用：可用独立密码，默认与后台密码相同 */
 const WEB_PASSWORD =
   process.env.WEB_PASSWORD || process.env.ADMIN_PASSWORD || "";
 const ADMIN_TOKENS = new Set();
+
+/** 用 Node https 直连微信（不依赖 global fetch，便于云托管排障） */
+function httpsJson(url, timeoutMs = 12000) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { timeout: timeoutMs }, (res) => {
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => {
+        const raw = Buffer.concat(chunks).toString("utf8");
+        let data = null;
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          data = null;
+        }
+        resolve({ status: res.statusCode || 0, raw, data });
+      });
+    });
+    req.on("timeout", () => {
+      req.destroy();
+      reject(new Error("连接微信超时"));
+    });
+    req.on("error", (err) => reject(err));
+  });
+}
 
 const stats = {
   chat: 0,
@@ -98,16 +132,54 @@ function imageConfigHint() {
 function issueAdminToken() {
   const token = `adm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
   ADMIN_TOKENS.add(token);
+  if (db.isReady()) {
+    authStore
+      .createSession({
+        token,
+        role: "admin",
+        openid: "admin",
+        ip: "",
+        ttlMs: authStore.ADMIN_TTL_MS,
+      })
+      .catch(() => {});
+  }
   return token;
 }
 
 function adminAuth(req, res, next) {
   const header = String(req.headers.authorization || "");
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
-  if (!token || !ADMIN_TOKENS.has(token)) {
+  if (!token) {
     return res.status(401).json({ error: { message: "未登录或已过期" } });
   }
-  next();
+  if (ADMIN_TOKENS.has(token)) return next();
+  authStore
+    .validateAdminToken(token)
+    .then((ok) => {
+      if (ok) {
+        ADMIN_TOKENS.add(token);
+        return next();
+      }
+      return res.status(401).json({ error: { message: "未登录或已过期" } });
+    })
+    .catch(() => res.status(401).json({ error: { message: "未登录或已过期" } }));
+}
+
+function issueUserSession({ token, openid, unionid, platform, nickName, avatarUrl, ip }) {
+  if (!db.isReady() || !openid || !token) return;
+  authStore
+    .upsertUser({ openid, unionid, platform, nickName, avatarUrl })
+    .then((user) =>
+      authStore.createSession({
+        token,
+        role: "user",
+        openid,
+        userId: user && user.id,
+        ip,
+        ttlMs: authStore.USER_TTL_MS,
+      })
+    )
+    .catch(() => {});
 }
 
 function gateProductApi(kind) {
@@ -178,7 +250,7 @@ function gateProductApi(kind) {
 function maintenanceApiGate(req, res, next) {
   if (!req.path.startsWith("/api/")) return next();
   if (req.path.startsWith("/api/admin")) return next();
-  if (req.path === "/api/public/status" || req.path === "/health" || req.path === "/api/report-error") {
+  if (req.path === "/api/public/status" || req.path === "/api/public/diag-wechat" || req.path === "/health" || req.path === "/api/report-error") {
     return next();
   }
   if (req.path.startsWith("/api/image/file/")) return next();
@@ -230,17 +302,18 @@ app.post("/api/admin/login", (req, res) => {
   res.json({ ok: true, token });
 });
 
-app.post("/api/admin/logout", adminAuth, (req, res) => {
-  const header = String(req.headers.authorization || "");
-  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+app.post("/api/admin/logout", adminAuth, async (req, res) => {
+  const token = authStore.bearerToken(req);
   ADMIN_TOKENS.delete(token);
+  await authStore.revokeSession(token);
   res.json({ ok: true });
 });
 
-app.get("/api/admin/overview", adminAuth, (_req, res) => {
+app.get("/api/admin/overview", adminAuth, async (_req, res) => {
   const settings = ops.loadSettings();
   const system = ops.getSystemInfo();
   const sec = ops.secretsStatus();
+  const hourly = await ops.getHourlySeriesAsync(24);
   res.json({
     ok: true,
     brand: "呆呆网络",
@@ -255,7 +328,7 @@ app.get("/api/admin/overview", adminAuth, (_req, res) => {
       imageFail: stats.imageFail,
       imageEditFail: stats.imageEditFail,
     },
-    hourly: ops.getHourlySeries(24),
+    hourly,
     system,
     settings: {
       maintenance: settings.maintenance,
@@ -300,14 +373,15 @@ app.get("/api/admin/overview", adminAuth, (_req, res) => {
   });
 });
 
-app.get("/api/admin/logs", adminAuth, (req, res) => {
+app.get("/api/admin/logs", adminAuth, async (req, res) => {
   const limit = Math.min(200, Number(req.query.limit) || 80);
-  res.json({ ok: true, logs: ops.getLogs(limit) });
+  const logs = await ops.getLogsAsync(limit);
+  res.json({ ok: true, logs });
 });
 
-app.get("/api/admin/errors", adminAuth, (req, res) => {
+app.get("/api/admin/errors", adminAuth, async (req, res) => {
   const limit = Math.min(150, Number(req.query.limit) || 60);
-  const errors = ops.getErrors(limit);
+  const errors = await ops.getErrorsAsync(limit);
   res.json({
     ok: true,
     errors,
@@ -560,13 +634,51 @@ app.post("/api/admin/probe", adminAuth, async (req, res) => {
       });
     }
     if (kind === "wechat") {
-      return res.json({
-        ok: Boolean(WECHAT_APPID && WECHAT_SECRET),
-        kind,
-        ms: Date.now() - started,
-        preview: WECHAT_APPID ? `小程序已绑定 ${ops.maskSecret(WECHAT_APPID)}` : "未配置",
-        error: WECHAT_APPID && WECHAT_SECRET ? "" : "缺少小程序登录配置",
-      });
+      if (!WECHAT_APPID || !WECHAT_SECRET) {
+        return res.json({
+          ok: false,
+          kind,
+          ms: Date.now() - started,
+          preview: WECHAT_APPID ? `AppID ${ops.maskSecret(WECHAT_APPID)}` : "未配置",
+          error: "缺少 WECHAT_APPID / WECHAT_SECRET",
+        });
+      }
+      try {
+        const url =
+          "https://api.weixin.qq.com/sns/jscode2session" +
+          `?appid=${encodeURIComponent(WECHAT_APPID)}` +
+          `&secret=${encodeURIComponent(WECHAT_SECRET)}` +
+          "&js_code=probe_invalid_code&grant_type=authorization_code";
+        const result = await httpsJson(url, 12000);
+        const errcode = result.data && result.data.errcode;
+        // 能拿到微信 JSON 就说明出网 + Secret 已被微信受理（无效 code 常见 40029）
+        const reachable = Boolean(result.data);
+        const secretLikelyOk = errcode !== 40125 && errcode !== 40013;
+        return res.json({
+          ok: reachable && secretLikelyOk,
+          kind,
+          ms: Date.now() - started,
+          preview: reachable
+            ? `已连通微信 errcode=${errcode || "?"}（探测用无效 code，属正常）`
+            : "微信无 JSON 响应",
+          error: !reachable
+            ? `出网异常 HTTP ${result.status}`
+            : errcode === 40125
+              ? "AppSecret 无效"
+              : errcode === 40013
+                ? "AppID 无效"
+                : "",
+          errcode: errcode || null,
+        });
+      } catch (err) {
+        return res.json({
+          ok: false,
+          kind,
+          ms: Date.now() - started,
+          preview: "",
+          error: err.message || "无法连接 api.weixin.qq.com",
+        });
+      }
     }
     if (kind === "image") {
       const imageKey = ops.getImageKey();
@@ -669,6 +781,31 @@ app.get("/api/public/status", (_req, res) => {
   });
 });
 
+/** 不泄露 Secret：只测云托管能否访问微信登录域名 */
+app.get("/api/public/diag-wechat", async (_req, res) => {
+  const started = Date.now();
+  try {
+    const result = await httpsJson("https://api.weixin.qq.com/", 10000);
+    return res.json({
+      ok: true,
+      reachable: true,
+      ms: Date.now() - started,
+      httpStatus: result.status,
+      configured: Boolean(WECHAT_APPID && WECHAT_SECRET),
+      appIdPreview: WECHAT_APPID ? ops.maskSecret(WECHAT_APPID) : "",
+    });
+  } catch (err) {
+    return res.status(502).json({
+      ok: false,
+      reachable: false,
+      ms: Date.now() - started,
+      configured: Boolean(WECHAT_APPID && WECHAT_SECRET),
+      appIdPreview: WECHAT_APPID ? ops.maskSecret(WECHAT_APPID) : "",
+      error: err.message || String(err),
+    });
+  }
+});
+
 function hashCode(str) {
   let h = 0;
   const s = String(str || "");
@@ -702,12 +839,21 @@ app.post("/api/auth/login", async (req, res) => {
         });
       }
       const openid = `dev_${hashCode(code)}`;
+      const token = `dev_${openid}`;
       stats.login += 1;
       ops.bumpHourly("login");
+      issueUserSession({
+        token,
+        openid,
+        platform: "dev",
+        nickName,
+        avatarUrl,
+        ip: ops.clientIp(req),
+      });
       return res.json({
         ok: true,
         openid,
-        token: `dev_${openid}`,
+        token,
         nickName,
         avatarUrl,
         dev: true,
@@ -720,23 +866,72 @@ app.post("/api/auth/login", async (req, res) => {
       `&secret=${encodeURIComponent(WECHAT_SECRET)}` +
       `&js_code=${encodeURIComponent(code)}` +
       "&grant_type=authorization_code";
-    const upstream = await fetch(url);
-    const data = await upstream.json();
+    let data = {};
+    try {
+      const result = await httpsJson(url, 12000);
+      data = result.data || {};
+      if (!result.data) {
+        console.error("jscode2session non-json:", result.status, result.raw.slice(0, 200));
+        ops.pushError({
+          source: "auth",
+          message: `jscode2session 非 JSON HTTP ${result.status}`,
+        });
+        return res.status(502).json({
+          ok: false,
+          error: { message: "微信登录接口异常，请稍后再试" },
+        });
+      }
+    } catch (netErr) {
+      console.error("jscode2session network error:", netErr);
+      ops.pushError({
+        source: "auth",
+        message: `无法连接微信登录接口: ${netErr.message || netErr}`,
+      });
+      return res.status(502).json({
+        ok: false,
+        error: {
+          message: "服务器无法连接微信登录接口，请检查云托管出网后重试",
+        },
+      });
+    }
     if (!data.openid) {
       console.error("jscode2session failed:", data);
-      ops.pushError({ source: "auth", message: "jscode2session 无 openid" });
+      const codeHint =
+        data.errcode === 40125
+          ? "AppSecret 无效，请在云托管核对 WECHAT_SECRET"
+          : data.errcode === 40013
+            ? "AppID 无效，请核对 WECHAT_APPID 是否与小程序一致"
+            : data.errcode === 40163 || data.errcode === 40029
+              ? "登录凭证已失效，请重试"
+              : "";
+      ops.pushError({
+        source: "auth",
+        message: `jscode2session 失败 errcode=${data.errcode || "?"} ${data.errmsg || ""}`,
+      });
       return res.status(401).json({
         ok: false,
-        error: { message: "微信授权失败，请返回重试" },
+        error: {
+          message: codeHint || "微信授权失败，请返回重试",
+        },
       });
     }
     stats.login += 1;
     ops.bumpHourly("login");
+    const token = `wx_${data.openid}_${hashCode(data.session_key || code)}`;
+    issueUserSession({
+      token,
+      openid: data.openid,
+      unionid: data.unionid || "",
+      platform: "wechat",
+      nickName,
+      avatarUrl,
+      ip: ops.clientIp(req),
+    });
     return res.json({
       ok: true,
       openid: data.openid,
       unionid: data.unionid || "",
-      token: `wx_${data.openid}_${hashCode(data.session_key || code)}`,
+      token,
       nickName,
       avatarUrl,
     });
@@ -766,12 +961,21 @@ app.post("/api/auth/web-login", (req, res) => {
     return res.status(401).json({ ok: false, error: { message: "密码错误" } });
   }
   const openid = "web_owner";
+  const token = `web_${openid}_${hashCode(password + Date.now())}`;
   stats.login += 1;
   ops.bumpHourly("login");
+  issueUserSession({
+    token,
+    openid,
+    platform: "web",
+    nickName: "站长",
+    avatarUrl: "",
+    ip: ops.clientIp(req),
+  });
   return res.json({
     ok: true,
     openid,
-    token: `web_${openid}_${hashCode(password + Date.now())}`,
+    token,
     nickName: "站长",
     avatarUrl: "",
   });
@@ -783,7 +987,69 @@ app.get("/api/auth/status", (_req, res) => {
     miniProgramWechatLogin: Boolean(WECHAT_APPID && WECHAT_SECRET),
     webPasswordLogin: Boolean(WEB_PASSWORD),
     allowDevLogin: ALLOW_DEV_LOGIN,
+    dbReady: db.isReady(),
+    dbConfigured: db.isConfigured(),
   });
+});
+
+/** 聊天记录：列表 */
+app.get("/api/chat/sessions", authStore.userAuthRequired, async (req, res) => {
+  if (!db.isReady()) {
+    return res.json({ ok: true, sessions: [], dbReady: false });
+  }
+  const sessions = await chatStore.listSessions(req.user.openid);
+  res.json({ ok: true, sessions, dbReady: true });
+});
+
+/** 聊天记录：读取单个会话 */
+app.get("/api/chat/sessions/:id", authStore.userAuthRequired, async (req, res) => {
+  if (!db.isReady()) {
+    return res.status(503).json({ ok: false, error: { message: "数据库未就绪" } });
+  }
+  const session = await chatStore.getSession(req.user.openid, req.params.id);
+  if (!session) {
+    return res.status(404).json({ ok: false, error: { message: "会话不存在" } });
+  }
+  res.json({ ok: true, session });
+});
+
+/** 聊天记录：保存/更新会话 */
+app.put("/api/chat/sessions/:id", authStore.userAuthRequired, async (req, res) => {
+  if (!db.isReady()) {
+    return res.status(503).json({ ok: false, error: { message: "数据库未就绪" } });
+  }
+  const body = req.body || {};
+  const sessions = await chatStore.saveSession(req.user.openid, {
+    id: req.params.id,
+    title: body.title,
+    preview: body.preview,
+    messages: body.messages,
+    meta: body.meta,
+  });
+  res.json({ ok: true, sessions });
+});
+
+/** 聊天记录：删除会话 */
+app.delete("/api/chat/sessions/:id", authStore.userAuthRequired, async (req, res) => {
+  if (!db.isReady()) {
+    return res.status(503).json({ ok: false, error: { message: "数据库未就绪" } });
+  }
+  const sessions = await chatStore.removeSession(req.user.openid, req.params.id);
+  res.json({ ok: true, sessions });
+});
+
+/** 聊天记录：批量同步（客户端迁移本地历史） */
+app.post("/api/chat/sync", authStore.userAuthRequired, async (req, res) => {
+  if (!db.isReady()) {
+    return res.status(503).json({ ok: false, error: { message: "数据库未就绪" } });
+  }
+  const list = Array.isArray(req.body && req.body.sessions) ? req.body.sessions : [];
+  for (const item of list.slice(0, 40)) {
+    if (!item || !item.id) continue;
+    await chatStore.saveSession(req.user.openid, item);
+  }
+  const sessions = await chatStore.listSessions(req.user.openid);
+  res.json({ ok: true, sessions });
 });
 
 app.get("/health", (_req, res) => {
@@ -794,6 +1060,10 @@ app.get("/health", (_req, res) => {
     chatConfigured: Boolean(ops.getChatKey()),
     imageConfigured: Boolean(ops.getImageKey()),
     wechatLoginConfigured: Boolean(WECHAT_APPID && WECHAT_SECRET),
+    dbReady: db.isReady(),
+    dbConfigured: db.isConfigured(),
+    dbError: db.getInitError(),
+    cosConfigured: cosStore.isConfigured(),
   });
 });
 
@@ -1091,7 +1361,7 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
     return res.status(400).json({ error: errorPayload("prompt 不能为空", res) });
   }
 
-  const size = body.size || "1024x1024";
+  const size = body.size || "1152x1536";
   const origin = imageOut.publicOrigin(req, ops.loadSettings());
   // 默认异步：立刻返回 jobId，避免云托管/网关 60s 左右 504（上游其实还在画并扣费）
   const wantSync = body.sync === true || body.sync === 1 || body.sync === "1";
@@ -1224,7 +1494,7 @@ async function runImageEditOnce({ imageKey, prompt, imageB64, mime, size, origin
     const form = new FormData();
     form.append("model", model);
     form.append("prompt", prompt);
-    form.append("size", size || "1024x1024");
+    form.append("size", size || "auto");
     form.append("n", "1");
     form.append(fieldName, new Blob([buf], { type }), `upload.${ext}`);
     const upstream = await outboundFetch(`${IMAGE_BASE_URL}/v1/images/edits`, {
@@ -1278,7 +1548,7 @@ async function runImageEditOnce({ imageKey, prompt, imageB64, mime, size, origin
     bytes: saved.bytes,
     ms: Date.now() - started,
     revised_prompt: item.revised_prompt || "",
-    size: size || "1024x1024",
+    size: size || "auto",
   };
 }
 
@@ -1348,7 +1618,7 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
   // 去掉可能的空白换行
   imageB64 = imageB64.replace(/\s+/g, "");
 
-  const size = body.size || "1024x1024";
+  const size = body.size || "1152x1536";
   const origin = imageOut.publicOrigin(req, ops.loadSettings());
   const wantSync = body.sync === true || body.sync === 1 || body.sync === "1";
 
@@ -1451,8 +1721,11 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
   }
 });
 
-app.get("/api/image/file/:id", (req, res) => {
-  const file = imageOut.resolveImageFile(req.params.id);
+app.get("/api/image/file/:id", async (req, res) => {
+  let file = imageOut.resolveImageFile(req.params.id);
+  if (!file) {
+    file = await imageOut.resolveImageFileAsync(req.params.id);
+  }
   if (!file) {
     return res.status(404).json({ error: { message: "图片不存在或已过期" } });
   }
@@ -1493,12 +1766,21 @@ app.get("*", (req, res, next) => {
   });
 });
 
-app.listen(PORT, "0.0.0.0", () => {
+app.listen(PORT, "0.0.0.0", async () => {
   const seeded = seedProxiesToDataDir();
+  if (db.isConfigured()) {
+    const ok = await db.init();
+    if (ok) {
+      await ops.hydrateFromDb();
+      await ops.hydrateSecretsFromDb();
+    }
+  } else {
+    console.warn("[db] MYSQL_HOST 未配置，聊天记录/后台记录仅落本地文件");
+  }
   console.log(
-    `呆呆网络 listening on ${PORT}, chatConfigured=${Boolean(ops.getChatKey())}, imageBase=${IMAGE_BASE_URL}, outboundProxy=${
+    `呆呆网络 listening on ${PORT}, chatConfigured=${Boolean(ops.getChatKey())}, imageBase=${IMAGE_BASE_URL}, dbReady=${db.isReady()}, outboundProxy=${
       hasOutboundProxy() ? maskProxy() : "off"
-    }, proxyNodes=${seeded || proxyCount()}, sharp=${imageOut.hasSharp()}, site=/, admin=/admin/`
+    }, proxyNodes=${seeded || proxyCount()}, sharp=${imageOut.hasSharp()}, cos=${cosStore.isConfigured()}, site=/, admin=/admin/`
   );
   imageOut.cleanupOldImages();
   setInterval(() => imageOut.cleanupOldImages(), 6 * 3600 * 1000).unref?.();

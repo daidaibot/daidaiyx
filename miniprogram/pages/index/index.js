@@ -9,7 +9,7 @@ Page({
     showSplash: true,
     splashLeaving: false,
     splashHidden: false,
-    pageReady: false,
+    pageReady: true,
     year: 2026,
     scrollInto: '',
     toastShow: false,
@@ -39,10 +39,22 @@ Page({
   },
 
   onLoad() {
-    this.applyLayout();
-    this._onResize = () => this.applyLayout();
+    try {
+      this.applyLayout();
+    } catch (e) {
+      console.warn('applyLayout failed', e);
+      this.setData({ statusBarHeight: 20, heroPadTop: 92, pageReady: true });
+    }
+    this._onResize = () => {
+      try {
+        this.applyLayout();
+      } catch (e) {
+        /* ignore */
+      }
+    };
     if (wx.onWindowResize) wx.onWindowResize(this._onResize);
-    this._timer = setTimeout(() => this.enterSite(), 3200);
+    // 开屏最多 1.6s，避免白屏卡住
+    this._timer = setTimeout(() => this.enterSite(), 1600);
   },
 
   onShow() {

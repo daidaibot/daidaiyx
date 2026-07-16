@@ -8,18 +8,9 @@
     "navigationBarTitleText": "呆呆网络",
     "navigationBarBackgroundColor": "#ffffff",
     "navigationBarTextStyle": "black",
-    "backgroundColor": "#e8f5ec",
-    "resizable": true
+    "backgroundColor": "#e8f5ec"
   },
-  "permission": {
-    "scope.writePhotosAlbum": {
-      "desc": "用于将呆呆 AI 生成/改图结果保存到你的相册"
-    }
-  },
-  "requiredPrivateInfos": [
-    "chooseMedia",
-    "chooseImage"
-  ],
   "style": "v2",
+  "lazyCodeLoading": "requiredComponents",
   "sitemapLocation": "sitemap.json"
 }
