@@ -349,13 +349,13 @@
     <view class="login-handle"></view>
     <view class="login-brand">呆呆网络</view>
     <view class="login-sheet-title">登录</view>
-    <view class="login-sheet-desc">手机号或邮箱验证码登录，未注册将自动创建账号</view>
+    <view class="login-sheet-desc">仅支持 +86 手机号或 QQ 邮箱验证码登录</view>
 
     <view class="login-fields">
       <input
         class="nick-input"
         type="text"
-        placeholder="手机号或邮箱"
+        placeholder="+86 手机号 或 QQ邮箱"
         value="{{loginAccount}}"
         bindinput="onAccountInput"
       />
@@ -376,7 +376,7 @@
     </view>
 
     <button
-      class="login-btn"
+      class="login-btn login-btn-sm"
       loading="{{loginLoading}}"
       hover-class="login-btn-hover"
       bindtap="onCodeLogin"
@@ -385,7 +385,7 @@
     <view class="login-or"><text class="login-or-line"></text><text class="login-or-text">或</text><text class="login-or-line"></text></view>
 
     <button
-      class="login-btn login-btn-secondary"
+      class="login-btn login-btn-secondary login-btn-sm"
       open-type="getPhoneNumber"
       bindgetphonenumber="onGetPhoneNumber"
       loading="{{loginLoading}}"
