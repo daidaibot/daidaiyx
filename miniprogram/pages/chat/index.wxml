@@ -369,9 +369,9 @@
           bindinput="onCodeInput"
         />
         <view
-          class="code-btn {{codeCooldowning || loginLoading ? 'disabled' : ''}}"
-          bindtap="onSendCode"
-        >{{codeCooldowning ? codeLeft + 's' : '获取验证码'}}</view>
+          class="code-btn {{codeCooling || codeSending ? 'disabled' : ''}}"
+          catchtap="onSendCode"
+        >{{codeCooling ? codeLeft + 's' : (codeSending ? '发送中' : '获取验证码')}}</view>
       </view>
     </view>
 

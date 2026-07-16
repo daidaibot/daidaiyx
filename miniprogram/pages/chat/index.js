@@ -329,6 +329,7 @@ Page({
     loginAccount: '',
     loginCode: '',
     codeCooling: false,
+    codeSending: false,
     codeLeft: 60,
     loginNick: '',
     loginAvatar: '',
@@ -631,31 +632,53 @@ Page({
   },
 
   onSendCode() {
-    if (this.data.codeCooling || this.data.loginLoading) return;
+    if (this.data.codeCooling || this.data.codeSending) return;
     const account = String(this.data.loginAccount || '').trim();
     if (!account) {
-      wx.showToast({ title: '请输入 +86 手机号或 QQ 邮箱', icon: 'none' });
+      wx.showToast({ title: '请先填写手机号或QQ邮箱', icon: 'none', duration: 2500 });
       return;
     }
+    const isQq = /^[a-z0-9._-]{2,64}@qq\.com$/i.test(account);
+    const phone = account.replace(/\s+/g, '').replace(/^\+?86/, '');
+    const isPhone = /^1\d{10}$/.test(phone);
+    if (!isQq && !isPhone) {
+      wx.showModal({
+        title: '账号格式不对',
+        content: '请填写中国大陆手机号（1开头11位），或 QQ 邮箱（xxx@qq.com）',
+        showCancel: false,
+      });
+      return;
+    }
+    this.setData({ codeSending: true });
+    wx.showLoading({ title: '发送中', mask: true });
     sendLoginCode(account)
       .then((data) => {
+        wx.hideLoading();
+        this.setData({ codeSending: false });
         this._startCodeCool(data.cooldownSec || 60);
         const shown = data.previewCode || data.devCode;
         if (shown) {
           this.setData({ loginCode: String(shown) });
           wx.showModal({
             title: '验证码',
-            content: `${data.message || '验证码已生成'}：${shown}`,
+            content: `${data.message || '验证码'}：${shown}`,
             showCancel: false,
           });
-        } else {
-          wx.showToast({ title: data.message || '验证码已发送', icon: 'none' });
+          return;
         }
+        wx.showModal({
+          title: '已发送',
+          content: data.message || '验证码已发送，请查收邮箱（含垃圾箱）',
+          showCancel: false,
+        });
       })
       .catch((err) => {
-        wx.showToast({
-          title: (err && err.message) || '发送失败',
-          icon: 'none',
+        wx.hideLoading();
+        this.setData({ codeSending: false });
+        wx.showModal({
+          title: '发送失败',
+          content: (err && err.message) || '网络错误，请稍后重试',
+          showCancel: false,
         });
       });
   },

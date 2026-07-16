@@ -76,23 +76,39 @@ function postAuth(path, data) {
   return new Promise((resolve, reject) => {
     const base = apiBase();
     if (!base) {
-      reject(new Error('未连接服务器'));
+      reject(new Error('未连接服务器，请检查 apiBase'));
       return;
     }
     wx.request({
       url: `${base}${path}`,
       method: 'POST',
-      timeout: 20000,
+      timeout: 30000,
+      header: { 'content-type': 'application/json' },
       data: data || {},
       success: (res) => {
-        const body = res.data || {};
+        let body = res.data;
+        if (typeof body === 'string') {
+          try {
+            body = JSON.parse(body);
+          } catch (e) {
+            body = {};
+          }
+        }
+        body = body || {};
         if (res.statusCode >= 200 && res.statusCode < 300 && body.ok) {
           resolve(body);
           return;
         }
-        reject(new Error((body.error && body.error.message) || `请求失败(${res.statusCode})`));
+        reject(
+          new Error(
+            (body.error && body.error.message) ||
+              body.message ||
+              `请求失败(${res.statusCode})`
+          )
+        );
       },
-      fail: () => reject(new Error('网络错误，请稍后再试')),
+      fail: (err) =>
+        reject(new Error((err && err.errMsg) || '网络错误，请稍后再试')),
     });
   });
 }
