@@ -100,6 +100,109 @@ async function weixinHttpsJson(url, timeoutMs = 12000) {
   }
 }
 
+function httpsPostJson(url, body, timeoutMs = 12000, tlsOpts = {}) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(body || {});
+    const u = new URL(url);
+    const req = https.request(
+      {
+        protocol: u.protocol,
+        hostname: u.hostname,
+        port: u.port || 443,
+        path: `${u.pathname}${u.search}`,
+        method: "POST",
+        timeout: timeoutMs,
+        rejectUnauthorized: tlsOpts.rejectUnauthorized !== false,
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(payload),
+        },
+      },
+      (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => {
+          const raw = Buffer.concat(chunks).toString("utf8");
+          let data = null;
+          try {
+            data = JSON.parse(raw);
+          } catch {
+            data = null;
+          }
+          resolve({ status: res.statusCode || 0, raw, data });
+        });
+      }
+    );
+    req.on("timeout", () => {
+      req.destroy();
+      reject(new Error("连接微信超时"));
+    });
+    req.on("error", (err) => reject(err));
+    req.write(payload);
+    req.end();
+  });
+}
+
+async function weixinHttpsPostJson(url, body, timeoutMs = 12000) {
+  try {
+    return await httpsPostJson(url, body, timeoutMs, { rejectUnauthorized: true });
+  } catch (err) {
+    const msg = String((err && err.message) || err || "");
+    if (!/self-signed|UNABLE_TO_VERIFY|CERT_|certificate/i.test(msg)) throw err;
+    return httpsPostJson(url, body, timeoutMs, { rejectUnauthorized: false });
+  }
+}
+
+let _wxTokenCache = { token: "", expireAt: 0 };
+async function getWechatAccessToken() {
+  if (_wxTokenCache.token && Date.now() < _wxTokenCache.expireAt - 60000) {
+    return _wxTokenCache.token;
+  }
+  if (!WECHAT_APPID || !WECHAT_SECRET) {
+    throw new Error("未配置 WECHAT_APPID / WECHAT_SECRET");
+  }
+  const url =
+    "https://api.weixin.qq.com/cgi-bin/token" +
+    `?grant_type=client_credential&appid=${encodeURIComponent(WECHAT_APPID)}` +
+    `&secret=${encodeURIComponent(WECHAT_SECRET)}`;
+  const result = await weixinHttpsJson(url, 12000);
+  const data = result.data || {};
+  if (!data.access_token) {
+    throw new Error(data.errmsg || "获取微信 access_token 失败");
+  }
+  _wxTokenCache = {
+    token: data.access_token,
+    expireAt: Date.now() + Number(data.expires_in || 7200) * 1000,
+  };
+  return _wxTokenCache.token;
+}
+
+function finishAccountLogin(res, req, user) {
+  const openid = user.openid;
+  const token = authStore.makeUserToken(openid);
+  issueUserSession({
+    token,
+    openid,
+    platform: user.platform || "account",
+    nickName: user.nickName || "",
+    avatarUrl: user.avatarUrl || "",
+    ip: ops.clientIp(req),
+  });
+  // also persist phone/email via upsert already done
+  stats.login += 1;
+  ops.bumpHourly("login");
+  return res.json({
+    ok: true,
+    openid,
+    token,
+    nickName: user.nickName || "",
+    avatarUrl: user.avatarUrl || "",
+    phone: user.phone || "",
+    email: user.email || "",
+    platform: user.platform || "account",
+  });
+}
+
 const stats = {
   chat: 0,
   image: 0,
@@ -190,10 +293,10 @@ function adminAuth(req, res, next) {
     .catch(() => res.status(401).json({ error: { message: "未登录或已过期" } }));
 }
 
-function issueUserSession({ token, openid, unionid, platform, nickName, avatarUrl, ip }) {
+function issueUserSession({ token, openid, unionid, platform, nickName, avatarUrl, phone, email, ip }) {
   if (!openid || !token) return;
   authStore
-    .upsertUser({ openid, unionid, platform, nickName, avatarUrl })
+    .upsertUser({ openid, unionid, platform, nickName, avatarUrl, phone, email })
     .then((user) =>
       authStore.createSession({
         token,
@@ -886,7 +989,83 @@ function saveUserAvatar(openid, avatarBase64) {
 }
 
 /**
- * 小程序登录：wx.login code → jscode2session
+ * 手机号 / 邮箱 + 密码：注册
+ */
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    const body = req.body || {};
+    const user = await authStore.registerAccount({
+      account: body.account || body.phone || body.email,
+      password: body.password,
+      nickName: body.nickName,
+    });
+    return finishAccountLogin(res, req, user);
+  } catch (err) {
+    const status = err.code === "EXISTS" ? 409 : err.code === "BAD_ACCOUNT" || err.code === "BAD_PASSWORD" ? 400 : 500;
+    return res.status(status).json({ ok: false, error: { message: err.message || "注册失败" } });
+  }
+});
+
+/**
+ * 手机号 / 邮箱 + 密码：登录
+ */
+app.post("/api/auth/account-login", async (req, res) => {
+  try {
+    const body = req.body || {};
+    const user = await authStore.loginAccount({
+      account: body.account || body.phone || body.email,
+      password: body.password,
+    });
+    return finishAccountLogin(res, req, user);
+  } catch (err) {
+    const status = err.code === "AUTH" || err.code === "BAD_ACCOUNT" ? 401 : 500;
+    return res.status(status).json({ ok: false, error: { message: err.message || "登录失败" } });
+  }
+});
+
+/**
+ * 微信手机号快捷登录：button open-type=getPhoneNumber 的 code
+ */
+app.post("/api/auth/phone-login", async (req, res) => {
+  try {
+    const code = String((req.body && req.body.code) || "").trim();
+    if (!code) {
+      return res.status(400).json({ ok: false, error: { message: "缺少手机号授权凭证" } });
+    }
+    if (!WECHAT_APPID || !WECHAT_SECRET) {
+      return res.status(503).json({
+        ok: false,
+        error: { message: "未配置微信小程序（无法一键取手机号）" },
+      });
+    }
+    const accessToken = await getWechatAccessToken();
+    const result = await weixinHttpsPostJson(
+      `https://api.weixin.qq.com/wxa/business/getuserphonenumber?access_token=${encodeURIComponent(accessToken)}`,
+      { code }
+    );
+    const data = result.data || {};
+    const phone =
+      (data.phone_info && (data.phone_info.purePhoneNumber || data.phone_info.phoneNumber)) || "";
+    if (!phone) {
+      console.error("getuserphonenumber failed:", data);
+      return res.status(401).json({
+        ok: false,
+        error: { message: data.errmsg || "获取手机号失败，请改用账号密码登录" },
+      });
+    }
+    const user = await authStore.loginOrRegisterPhone(phone, req.body && req.body.nickName);
+    return finishAccountLogin(res, req, user);
+  } catch (err) {
+    console.error("phone-login error:", err);
+    return res.status(502).json({
+      ok: false,
+      error: { message: err.message || "手机号登录失败" },
+    });
+  }
+});
+
+/**
+ * 小程序登录：wx.login code → jscode2session（旧流程保留兼容）
  * 必须配置 WECHAT_APPID + WECHAT_SECRET；禁止默认假登录
  * 仅当 ALLOW_DEV_LOGIN=1 时才允许开发态回落
  */

@@ -1124,6 +1124,23 @@
   flex-shrink: 0;
 }
 
+.login-fields {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+  margin-bottom: 28rpx;
+}
+
+.login-switch {
+  margin-top: 22rpx;
+  text-align: center;
+  font-size: 26rpx;
+  color: #40916c;
+  font-weight: 500;
+  padding: 8rpx;
+}
+
 .login-home {
   margin-top: 28rpx;
   font-size: 26rpx;

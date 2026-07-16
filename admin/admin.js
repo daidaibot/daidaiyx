@@ -444,15 +444,16 @@ async function loadUsers() {
   }
   body.innerHTML = users
     .map((u) => {
-      const name = esc(u.nickName || "微信用户");
+      const name = esc(u.nickName || "用户");
       const avatar = u.avatarUrl
         ? `<img class="user-avatar" src="${esc(u.avatarUrl)}" alt="" />`
         : `<span class="user-avatar ph">呆</span>`;
+      const contact = esc(u.phone || u.email || "—");
       return `<tr>
         <td><div class="user-cell">${avatar}<span>${name}</span></div></td>
+        <td>${contact}</td>
         <td><code class="mono">${esc(u.openid || "")}</code></td>
-        <td>${esc(u.platform || "wechat")}</td>
-        <td>${fmtTime(u.createdAt)}</td>
+        <td>${esc(u.platform || "account")}</td>
         <td>${fmtTime(u.lastLoginAt)}</td>
       </tr>`;
     })

@@ -22,20 +22,23 @@ function isLoggedIn() {
   return !!(u && u.openid && getToken());
 }
 
-function saveSession({ token, openid, nickName, avatarUrl }) {
+function saveSession(payload) {
   const user = {
-    openid,
-    nickName: nickName || '微信用户',
-    avatarUrl: avatarUrl || '',
+    openid: payload.openid,
+    nickName: payload.nickName || '用户',
+    avatarUrl: payload.avatarUrl || '',
+    phone: payload.phone || '',
+    email: payload.email || '',
+    platform: payload.platform || 'account',
     loggedInAt: Date.now(),
   };
   wx.setStorageSync(USER_KEY, user);
-  wx.setStorageSync(TOKEN_KEY, token || openid);
+  wx.setStorageSync(TOKEN_KEY, payload.token || payload.openid);
   try {
     const app = getApp();
     if (app && app.globalData) {
       app.globalData.user = user;
-      app.globalData.token = token || openid;
+      app.globalData.token = payload.token || payload.openid;
     }
   } catch (e) {
     /* ignore */
@@ -61,133 +64,60 @@ function clearSession() {
   }
 }
 
-function readAvatarBase64(filePath) {
-  return new Promise((resolve) => {
-    const p = String(filePath || '').trim();
-    if (!p || /^https?:\/\//i.test(p)) {
-      resolve('');
-      return;
-    }
-    try {
-      wx.getFileSystemManager().readFile({
-        filePath: p,
-        encoding: 'base64',
-        success: (res) => resolve(String(res.data || '')),
-        fail: () => resolve(''),
-      });
-    } catch (e) {
-      resolve('');
-    }
-  });
+function apiBase() {
+  try {
+    return ((getApp().globalData && getApp().globalData.apiBase) || '').replace(/\/$/, '');
+  } catch (e) {
+    return '';
+  }
 }
 
-function persistAvatarLocal(tempPath, openid) {
-  return new Promise((resolve) => {
-    const src = String(tempPath || '').trim();
-    if (!src || /^https?:\/\//i.test(src)) {
-      resolve(src);
-      return;
-    }
-    const dest = `${wx.env.USER_DATA_PATH}/avatar_${String(openid || 'me').replace(/[^\w-]/g, '')}.jpg`;
-    try {
-      wx.getFileSystemManager().saveFile({
-        tempFilePath: src,
-        filePath: dest,
-        success: (res) => resolve((res && res.savedFilePath) || dest),
-        fail: () => {
-          try {
-            wx.getFileSystemManager().copyFile({
-              srcPath: src,
-              destPath: dest,
-              success: () => resolve(dest),
-              fail: () => resolve(src),
-            });
-          } catch (e) {
-            resolve(src);
-          }
-        },
-      });
-    } catch (e) {
-      resolve(src);
-    }
-  });
-}
-
-/** wx.login → 后端 code2session；昵称/头像由用户点选后传入 */
-function loginWithWeChat(profile = {}) {
+function postAuth(path, data) {
   return new Promise((resolve, reject) => {
-    let apiBase = '';
-    try {
-      apiBase = (getApp().globalData && getApp().globalData.apiBase) || '';
-    } catch (e) {
-      apiBase = '';
-    }
-
-    if (!apiBase) {
-      reject(new Error('未连接云托管，无法微信登录'));
+    const base = apiBase();
+    if (!base) {
+      reject(new Error('未连接服务器'));
       return;
     }
-
-    const nickName = String(profile.nickName || '').trim();
-    const avatarUrl = String(profile.avatarUrl || '').trim();
-    if (!nickName) {
-      reject(new Error('请填写微信昵称'));
-      return;
-    }
-
-    wx.login({
-      success: (loginRes) => {
-        const code = loginRes.code;
-        if (!code) {
-          reject(new Error('未拿到微信登录凭证，请重试'));
+    wx.request({
+      url: `${base}${path}`,
+      method: 'POST',
+      timeout: 20000,
+      data: data || {},
+      success: (res) => {
+        const body = res.data || {};
+        if (res.statusCode >= 200 && res.statusCode < 300 && body.ok && body.openid) {
+          resolve(saveSession(body));
           return;
         }
-
-        readAvatarBase64(avatarUrl).then((avatarBase64) => {
-          wx.request({
-            url: `${apiBase.replace(/\/$/, '')}/api/auth/login`,
-            method: 'POST',
-            timeout: 20000,
-            data: {
-              code,
-              nickName,
-              avatarUrl: /^https?:\/\//i.test(avatarUrl) ? avatarUrl : '',
-              avatarBase64: avatarBase64 || '',
-            },
-            success: (res) => {
-              const data = res.data || {};
-              if (!data.ok || !data.openid || data.dev) {
-                reject(
-                  new Error(
-                    (data.error && data.error.message) ||
-                      '微信登录未配置，请在云托管设置 WECHAT_APPID / WECHAT_SECRET'
-                  )
-                );
-                return;
-              }
-              const remoteAvatar = String(data.avatarUrl || '').trim();
-              const finish = (localAvatar) => {
-                const user = saveSession({
-                  token: data.token || data.openid,
-                  openid: data.openid,
-                  nickName: data.nickName || nickName,
-                  avatarUrl: remoteAvatar || localAvatar || avatarUrl,
-                });
-                resolve(user);
-              };
-              if (remoteAvatar) {
-                finish(remoteAvatar);
-              } else {
-                persistAvatarLocal(avatarUrl, data.openid).then(finish);
-              }
-            },
-            fail: () => reject(new Error('网络错误，请稍后再试')),
-          });
-        });
+        reject(new Error((body.error && body.error.message) || `登录失败(${res.statusCode})`));
       },
-      fail: () => reject(new Error('请在微信内使用微信登录')),
+      fail: () => reject(new Error('网络错误，请稍后再试')),
     });
   });
+}
+
+/** 手机号或邮箱 + 密码登录 */
+function loginWithAccount({ account, password }) {
+  return postAuth('/api/auth/account-login', { account, password });
+}
+
+/** 注册 */
+function registerAccount({ account, password, nickName }) {
+  return postAuth('/api/auth/register', { account, password, nickName });
+}
+
+/** 微信一键手机号登录 */
+function loginWithPhoneCode(code) {
+  return postAuth('/api/auth/phone-login', { code });
+}
+
+/** 兼容旧调用名 */
+function loginWithWeChat(profile = {}) {
+  if (profile.account && profile.password) {
+    return loginWithAccount(profile);
+  }
+  return Promise.reject(new Error('请使用手机号或邮箱登录'));
 }
 
 module.exports = {
@@ -196,5 +126,8 @@ module.exports = {
   isLoggedIn,
   saveSession,
   clearSession,
+  loginWithAccount,
+  registerAccount,
+  loginWithPhoneCode,
   loginWithWeChat,
 };

@@ -10,7 +10,9 @@ const {
 const {
   getUser,
   isLoggedIn,
-  loginWithWeChat,
+  loginWithAccount,
+  registerAccount,
+  loginWithPhoneCode,
   clearSession,
 } = require('../../utils/auth');
 const {
@@ -324,9 +326,12 @@ Page({
     entered: false,
     loggedIn: false,
     loginLoading: false,
+    loginMode: 'login',
+    loginAccount: '',
+    loginPassword: '',
     loginNick: '',
     loginAvatar: '',
-    user: { nickName: '微信用户', avatarUrl: '' },
+    user: { nickName: '游客', avatarUrl: '' },
     showDrawer: false,
     historyList: [],
     sessionId: '',
@@ -540,25 +545,33 @@ Page({
     this.setData({ customMasks, maskPreview });
   },
 
-  onChooseAvatar(e) {
-    const url = e.detail && e.detail.avatarUrl;
-    if (url) this.setData({ loginAvatar: url });
-  },
+  onChooseAvatar() {},
 
   onNickInput(e) {
     this.setData({ loginNick: (e.detail && e.detail.value) || '' });
   },
 
+  onAccountInput(e) {
+    this.setData({ loginAccount: (e.detail && e.detail.value) || '' });
+  },
+
+  onPasswordInput(e) {
+    this.setData({ loginPassword: (e.detail && e.detail.value) || '' });
+  },
+
+  toggleLoginMode() {
+    this.setData({
+      loginMode: this.data.loginMode === 'register' ? 'login' : 'register',
+    });
+  },
+
   openLogin() {
-    const user = getUser() || {};
     this.setData({
       showLogin: true,
       showDrawer: false,
       showSheet: false,
       showMaskPanel: false,
       showMaskCreate: false,
-      loginNick: this.data.loginNick || user.nickName || '',
-      loginAvatar: this.data.loginAvatar || user.avatarUrl || '',
     });
   },
 
@@ -585,116 +598,76 @@ Page({
     });
   },
 
-  onLoginSubmit(e) {
-    if (this.data.loginLoading) return;
-    const fromForm = (e.detail && e.detail.value && e.detail.value.nickName) || '';
-    const nickName = String(fromForm || this.data.loginNick || '').trim();
-    const avatarUrl = String(this.data.loginAvatar || '').trim();
-    if (!avatarUrl) {
-      wx.showToast({ title: '请先点选微信头像', icon: 'none' });
-      return;
+  _afterLoginSuccess(user) {
+    this.setData({
+      loggedIn: true,
+      user,
+      loginLoading: false,
+      loginPassword: '',
+      showLogin: false,
+      showDrawer: false,
+      welcomeSub: '我是呆呆 AI · 聊天写作编程 · 生图改图',
+      navSub: '随时帮忙',
+    });
+    this.refreshHistory();
+    syncAllLocalToServer()
+      .then(() => this.refreshHistory())
+      .catch(() => {});
+    if (!this.data.messages.length) {
+      this.restoreLatestSession();
     }
-    if (!nickName) {
-      wx.showToast({ title: '请填写或选用微信昵称', icon: 'none' });
-      return;
-    }
-    this._finishLogin({ nickName, avatarUrl });
+    wx.showToast({ title: '登录成功', icon: 'success' });
   },
 
-  /** 微信授权弹窗拿头像昵称，再换 openid */
-  onWxAuthLogin() {
+  onAccountSubmit() {
     if (this.data.loginLoading) return;
+    const account = String(this.data.loginAccount || '').trim();
+    const password = String(this.data.loginPassword || '');
+    if (!account) {
+      wx.showToast({ title: '请输入手机号或邮箱', icon: 'none' });
+      return;
+    }
+    if (password.length < 6) {
+      wx.showToast({ title: '密码至少 6 位', icon: 'none' });
+      return;
+    }
     this.setData({ loginLoading: true });
-
-    const afterProfile = (nickName, avatarUrl) => {
-      if (!nickName && !avatarUrl) {
-        this.setData({ loginLoading: false });
-        wx.showModal({
-          title: '未能获取资料',
-          content: '请点选上方头像和昵称，再点「确认登录」',
-          showCancel: false,
-        });
-        return;
-      }
-      this.setData({
-        loginNick: nickName || this.data.loginNick,
-        loginAvatar: avatarUrl || this.data.loginAvatar,
-      });
-      this._finishLogin({
-        nickName: nickName || this.data.loginNick || '微信用户',
-        avatarUrl: avatarUrl || this.data.loginAvatar || '',
-      });
-    };
-
-    const runGetUserProfile = () => {
-      if (typeof wx.getUserProfile !== 'function') {
-        this.setData({ loginLoading: false });
-        wx.showModal({
-          title: '请完善资料',
-          content: '当前基础库不支持一键授权，请点选头像和昵称后确认登录',
-          showCancel: false,
-        });
-        return;
-      }
-      wx.getUserProfile({
-        desc: '用于完善呆呆网络个人资料',
-        success: (res) => {
-          const info = (res && res.userInfo) || {};
-          afterProfile(
-            String(info.nickName || '').trim(),
-            String(info.avatarUrl || '').trim()
-          );
-        },
-        fail: () => {
-          this.setData({ loginLoading: false });
-          wx.showModal({
-            title: '授权未完成',
-            content:
-              '微信已限制一键拉取资料。请点选头像（微信头像）和昵称后，再点「确认登录」。',
-            showCancel: false,
-          });
-        },
-      });
-    };
-
-    if (typeof wx.requirePrivacyAuthorize === 'function') {
-      wx.requirePrivacyAuthorize({
-        success: runGetUserProfile,
-        fail: runGetUserProfile,
-      });
-    } else {
-      runGetUserProfile();
-    }
-  },
-
-  _finishLogin({ nickName, avatarUrl }) {
-    this.setData({ loginLoading: true, loginNick: nickName });
-    loginWithWeChat({ nickName, avatarUrl })
-      .then((user) => {
-        this.setData({
-          loggedIn: true,
-          user,
-          loginLoading: false,
-          loginNick: user.nickName || nickName,
-          loginAvatar: user.avatarUrl || avatarUrl,
-          showLogin: false,
-          showDrawer: false,
-          welcomeSub: '我是呆呆 AI · 聊天写作编程 · 生图改图',
-          navSub: '随时帮忙',
-        });
-        this.refreshHistory();
-        syncAllLocalToServer()
-          .then(() => this.refreshHistory())
-          .catch(() => {});
-        if (!this.data.messages.length) {
-          this.restoreLatestSession();
-        }
-        wx.showToast({ title: '登录成功', icon: 'success' });
-      })
+    const req =
+      this.data.loginMode === 'register'
+        ? registerAccount({
+            account,
+            password,
+            nickName: this.data.loginNick,
+          })
+        : loginWithAccount({ account, password });
+    req
+      .then((user) => this._afterLoginSuccess(user))
       .catch((err) => {
         this.setData({ loginLoading: false });
         wx.showToast({
           title: (err && err.message) || '登录失败',
+          icon: 'none',
+        });
+      });
+  },
+
+  onGetPhoneNumber(e) {
+    if (this.data.loginLoading) return;
+    const detail = (e && e.detail) || {};
+    if (!detail.code) {
+      wx.showToast({
+        title: detail.errMsg && /deny|cancel/i.test(detail.errMsg) ? '已取消授权' : '未拿到手机号授权',
+        icon: 'none',
+      });
+      return;
+    }
+    this.setData({ loginLoading: true });
+    loginWithPhoneCode(detail.code)
+      .then((user) => this._afterLoginSuccess(user))
+      .catch((err) => {
+        this.setData({ loginLoading: false });
+        wx.showToast({
+          title: (err && err.message) || '手机号登录失败',
           icon: 'none',
         });
       });
@@ -705,7 +678,7 @@ Page({
     clearSession();
     this.setData({
       loggedIn: false,
-      user: { nickName: '微信用户', avatarUrl: '' },
+      user: { nickName: '游客', avatarUrl: '' },
       showDrawer: false,
       showLogin: false,
       messages: [],
