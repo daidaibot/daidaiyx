@@ -287,12 +287,12 @@
   function imageBlock(src) {
     const u = escapeHtml(src || "");
     if (!u) return "";
-    return `<div class="bubble-img-wrap">
+    // 水印烙在 JPEG 内，UI 只保留对齐的操作条
+    return `<div class="bubble-img-card">
       <img class="bubble-img" src="${u}" alt="" data-img="${u}" />
-      <span class="img-mark">呆呆 AI 生成</span>
       <div class="img-actions">
         <button type="button" class="img-act" data-preview-img="${u}">查看</button>
-        <button type="button" class="img-act" data-download-img="${u}">下载</button>
+        <button type="button" class="img-act primary" data-download-img="${u}">下载</button>
       </div>
     </div>`;
   }
