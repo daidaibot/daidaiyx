@@ -37,8 +37,28 @@ AppID：`wxdf3dcb6c1680f134`。
 | `MYSQL_USER` | 业务账号，如 `daidai_app` |
 | `MYSQL_PASSWORD` | 数据库密码 |
 | `MYSQL_DATABASE` | 库名，默认 `daidaiyx`（启动时自动建库建表） |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | 邮箱验证码（可选） |
+| `SMTP_HOST` | 邮箱 SMTP，QQ 邮箱填 `smtp.qq.com`（可省略，默认已是这个） |
+| `SMTP_PORT` | `465` |
+| `SMTP_USER` | 你的 QQ 邮箱，如 `123456@qq.com` |
+| `SMTP_PASS` | QQ 邮箱 **授权码**（不是 QQ 密码） |
+| `SMTP_FROM` | 可选，默认 `呆呆网络 <你的QQ邮箱>` |
 | `OTP_SMS_URL` | 短信网关 URL，POST `{ phone, code, minutes }`（可选） |
+
+#### QQ 邮箱验证码（推荐，免费）
+
+1. 打开 [QQ 邮箱](https://mail.qq.com) → 设置 → 账户  
+2. 找到「POP3/IMAP/SMTP…」→ 开启 **SMTP** → 生成 **授权码**  
+3. 云托管环境变量填：
+
+```
+SMTP_HOST=smtp.qq.com
+SMTP_PORT=465
+SMTP_USER=你的QQ号@qq.com
+SMTP_PASS=你的授权码
+SMTP_FROM=呆呆网络 <你的QQ号@qq.com>
+```
+
+用户收到的发件人会显示为「呆呆网络」。
 
 配置 MySQL 后，**聊天记录、后台设置、后台日志、图片元数据** 会写入数据库，重部署不丢。图片文件仍在 `data/gen-images/`（挂卷或后续接 COS）。
 
