@@ -2,8 +2,10 @@ FROM node:18-alpine
 
 WORKDIR /app
 
+# ca-certificates: 云托管出站访问 api.weixin.qq.com 等 HTTPS
 # libc6-compat: sharp; font-noto-cjk: 水印「呆呆 AI 生成」中文
-RUN apk add --no-cache libc6-compat fontconfig font-noto-cjk
+RUN apk add --no-cache ca-certificates libc6-compat fontconfig font-noto-cjk \
+  && update-ca-certificates
 
 COPY package.json ./
 RUN npm install --omit=dev

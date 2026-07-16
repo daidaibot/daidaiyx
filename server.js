@@ -51,28 +51,53 @@ const WEB_PASSWORD =
 const ADMIN_TOKENS = new Set();
 
 /** 用 Node https 直连微信（不依赖 global fetch，便于云托管排障） */
-function httpsJson(url, timeoutMs = 12000) {
+function httpsJson(url, timeoutMs = 12000, tlsOpts = {}) {
   return new Promise((resolve, reject) => {
-    const req = https.get(url, { timeout: timeoutMs }, (res) => {
-      const chunks = [];
-      res.on("data", (c) => chunks.push(c));
-      res.on("end", () => {
-        const raw = Buffer.concat(chunks).toString("utf8");
-        let data = null;
-        try {
-          data = JSON.parse(raw);
-        } catch {
-          data = null;
-        }
-        resolve({ status: res.statusCode || 0, raw, data });
-      });
-    });
+    const req = https.get(
+      url,
+      {
+        timeout: timeoutMs,
+        rejectUnauthorized: tlsOpts.rejectUnauthorized !== false,
+        servername: tlsOpts.servername,
+      },
+      (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => {
+          const raw = Buffer.concat(chunks).toString("utf8");
+          let data = null;
+          try {
+            data = JSON.parse(raw);
+          } catch {
+            data = null;
+          }
+          resolve({ status: res.statusCode || 0, raw, data });
+        });
+      }
+    );
     req.on("timeout", () => {
       req.destroy();
       reject(new Error("连接微信超时"));
     });
     req.on("error", (err) => reject(err));
   });
+}
+
+/** 微信接口：证书异常时（云托管中间人/缺 CA）自动降级一次 */
+async function weixinHttpsJson(url, timeoutMs = 12000) {
+  try {
+    return await httpsJson(url, timeoutMs, { rejectUnauthorized: true });
+  } catch (err) {
+    const msg = String((err && err.message) || err || "");
+    const tlsFail =
+      /self-signed|UNABLE_TO_VERIFY|CERT_|certificate/i.test(msg) ||
+      err.code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" ||
+      err.code === "DEPTH_ZERO_SELF_SIGNED_CERT" ||
+      err.code === "CERT_HAS_EXPIRED";
+    if (!tlsFail) throw err;
+    console.warn("weixin TLS verify failed, retry insecure:", msg);
+    return httpsJson(url, timeoutMs, { rejectUnauthorized: false });
+  }
 }
 
 const stats = {
@@ -649,7 +674,7 @@ app.post("/api/admin/probe", adminAuth, async (req, res) => {
           `?appid=${encodeURIComponent(WECHAT_APPID)}` +
           `&secret=${encodeURIComponent(WECHAT_SECRET)}` +
           "&js_code=probe_invalid_code&grant_type=authorization_code";
-        const result = await httpsJson(url, 12000);
+        const result = await weixinHttpsJson(url, 12000);
         const errcode = result.data && result.data.errcode;
         // 能拿到微信 JSON 就说明出网 + Secret 已被微信受理（无效 code 常见 40029）
         const reachable = Boolean(result.data);
@@ -785,7 +810,7 @@ app.get("/api/public/status", (_req, res) => {
 app.get("/api/public/diag-wechat", async (_req, res) => {
   const started = Date.now();
   try {
-    const result = await httpsJson("https://api.weixin.qq.com/", 10000);
+    const result = await weixinHttpsJson("https://api.weixin.qq.com/", 10000);
     return res.json({
       ok: true,
       reachable: true,
@@ -868,7 +893,7 @@ app.post("/api/auth/login", async (req, res) => {
       "&grant_type=authorization_code";
     let data = {};
     try {
-      const result = await httpsJson(url, 12000);
+      const result = await weixinHttpsJson(url, 12000);
       data = result.data || {};
       if (!result.data) {
         console.error("jscode2session non-json:", result.status, result.raw.slice(0, 200));
