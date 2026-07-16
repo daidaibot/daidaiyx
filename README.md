@@ -42,7 +42,12 @@ AppID：`wxdf3dcb6c1680f134`。
 | `SMTP_USER` | 你的 QQ 邮箱，如 `123456@qq.com` |
 | `SMTP_PASS` | QQ 邮箱 **授权码**（不是 QQ 密码） |
 | `SMTP_FROM` | 可选，默认 `呆呆网络 <你的QQ邮箱>` |
-| `OTP_SMS_URL` | 短信网关 URL，POST `{ phone, code, minutes }`（可选） |
+| `TENCENT_SECRET_ID` / `TENCENT_SECRET_KEY` | 腾讯云 API 密钥（发短信） |
+| `SMS_SDK_APP_ID` | 短信应用 ID，如 `1400xxxxxx` |
+| `SMS_SIGN` | 短信签名，如 `呆呆网络` |
+| `SMS_TEMPLATE_ID` | 验证码模板 ID |
+| `SMS_TEMPLATE_PARAMS` | 可选，默认 `code,minutes`（模板只有一个变量时改成 `code`） |
+| `OTP_SMS_URL` | 可选，自定义短信网关 |
 
 #### QQ 邮箱验证码（推荐，免费）
 
@@ -59,6 +64,29 @@ SMTP_FROM=呆呆网络 <你的QQ号@qq.com>
 ```
 
 用户收到的发件人会显示为「呆呆网络」。
+
+#### 腾讯云短信（手机验证码，按条计费约几分钱）
+
+1. 打开 [短信控制台](https://console.cloud.tencent.com/smsv2)  
+2. **国内短信** → 创建应用 → 记下 **SdkAppId**  
+3. **签名管理** → 创建签名（内容可用「呆呆网络」，选小程序/网站等资质）→ 等审核通过  
+4. **正文模板** → 创建，类型选验证码，例如：  
+   `您的验证码是{1}，{2}分钟内有效。如非本人操作请忽略。`  
+   审核通过后记下 **模板 ID**  
+5. [API 密钥](https://console.cloud.tencent.com/cam/capi) 创建 SecretId / SecretKey  
+6. 云托管环境变量：
+
+```
+TENCENT_SECRET_ID=你的SecretId
+TENCENT_SECRET_KEY=你的SecretKey
+SMS_SDK_APP_ID=1400xxxxxx
+SMS_SIGN=呆呆网络
+SMS_TEMPLATE_ID=123456
+SMS_TEMPLATE_PARAMS=code,minutes
+```
+
+若模板只有一个变量 `{1}`，把最后一行改成 `SMS_TEMPLATE_PARAMS=code`。  
+签名/模板未过审前，手机号可先用底部「微信手机号快捷登录」。
 
 配置 MySQL 后，**聊天记录、后台设置、后台日志、图片元数据** 会写入数据库，重部署不丢。图片文件仍在 `data/gen-images/`（挂卷或后续接 COS）。
 
