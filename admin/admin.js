@@ -2,6 +2,7 @@ const TOKEN_KEY = "daidai_admin_token";
 
 const TITLES = {
   overview: ["总览", "服务状态 · 快捷操作 · 健康检查"],
+  users: ["用户总览", "登录用户 · 昵称头像 · 最近活跃"],
   ops: ["运维配置", "开关 · 密钥 · 域名 · 公告"],
   logs: ["访问日志", "筛选 · 排查接口调用"],
   errors: ["错误日志", "失败与异常详情"],
@@ -428,6 +429,36 @@ function renderErrors() {
     : `<tr><td colspan="5">暂无错误</td></tr>`;
 }
 
+async function loadUsers() {
+  const q = (document.getElementById("usersQuery") && document.getElementById("usersQuery").value) || "";
+  const data = await api(`/api/admin/users?limit=100&offset=0&q=${encodeURIComponent(q)}`);
+  const body = document.getElementById("usersBody");
+  const meta = document.getElementById("usersMeta");
+  const users = data.users || [];
+  meta.textContent = `共 ${data.total || 0} 人 · 存储 ${data.source === "mysql" ? "MySQL" : "本地文件"}${
+    data.dbReady ? "" : "（未连库）"
+  }`;
+  if (!users.length) {
+    body.innerHTML = `<tr><td colspan="5" class="muted">暂无用户。小程序登录成功后会出现在这里。</td></tr>`;
+    return;
+  }
+  body.innerHTML = users
+    .map((u) => {
+      const name = esc(u.nickName || "微信用户");
+      const avatar = u.avatarUrl
+        ? `<img class="user-avatar" src="${esc(u.avatarUrl)}" alt="" />`
+        : `<span class="user-avatar ph">呆</span>`;
+      return `<tr>
+        <td><div class="user-cell">${avatar}<span>${name}</span></div></td>
+        <td><code class="mono">${esc(u.openid || "")}</code></td>
+        <td>${esc(u.platform || "wechat")}</td>
+        <td>${fmtTime(u.createdAt)}</td>
+        <td>${fmtTime(u.lastLoginAt)}</td>
+      </tr>`;
+    })
+    .join("");
+}
+
 async function loadLogs() {
   const data = await api("/api/admin/logs?limit=200");
   logsCache = data.logs || [];
@@ -692,6 +723,7 @@ function switchTab(name) {
 
   if (name === "logs") loadLogs().catch((e) => toast(e.message, "bad"));
   if (name === "errors") loadErrors().catch((e) => toast(e.message, "bad"));
+  if (name === "users") loadUsers().catch((e) => toast(e.message, "bad"));
   if (name === "ops") {
     loadSettingsForm().catch((e) => toast(e.message, "bad"));
     loadOverview().catch(() => {});
@@ -718,6 +750,8 @@ function startAutoRefresh() {
       loadLogs().catch(() => {});
     } else if (tab === "errors") {
       loadErrors().catch(() => {});
+    } else if (tab === "users") {
+      loadUsers().catch(() => {});
     }
   }, 15000);
 }
@@ -866,6 +900,17 @@ document.querySelectorAll("[data-probe]").forEach((btn) => {
 document.querySelectorAll(".nav").forEach((btn) => {
   btn.addEventListener("click", () => switchTab(btn.dataset.tab));
 });
+
+const usersSearchBtn = document.getElementById("usersSearchBtn");
+const usersRefreshBtn = document.getElementById("usersRefreshBtn");
+const usersQuery = document.getElementById("usersQuery");
+if (usersSearchBtn) usersSearchBtn.addEventListener("click", () => loadUsers().catch((e) => toast(e.message, "bad")));
+if (usersRefreshBtn) usersRefreshBtn.addEventListener("click", () => loadUsers().catch((e) => toast(e.message, "bad")));
+if (usersQuery) {
+  usersQuery.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") loadUsers().catch((err) => toast(err.message, "bad"));
+  });
+}
 
 (async function boot() {
   if (!token()) {

@@ -343,36 +343,55 @@
     </view>
   </view>
 
-  <!-- 使用时弹出的登录面板：头像+昵称须用户点选（微信已禁止静默拉取） -->
+  <!-- 登录面板 -->
   <view class="sheet-mask login-mask" wx:if="{{showLogin}}" bindtap="closeLogin"></view>
-  <view class="login-sheet {{showLogin ? 'show' : ''}}">
+  <view class="login-sheet {{showLogin ? 'show' : ''}}" catchtap="noop">
+    <view class="login-handle"></view>
+    <view class="login-brand">呆呆网络</view>
     <view class="login-sheet-title">微信登录</view>
-    <view class="login-sheet-desc">先点头像选用微信头像，再点昵称栏选用微信昵称，然后登录</view>
-    <form bindsubmit="onLoginSubmit">
+    <view class="login-sheet-desc">一键授权获取微信头像昵称；若授权不可用，请下方点选后确认</view>
+
+    <button
+      class="login-btn login-btn-wx"
+      loading="{{loginLoading}}"
+      hover-class="login-btn-hover"
+      bindtap="onWxAuthLogin"
+    >微信授权登录</button>
+
+    <view class="login-or"><text class="login-or-line"></text><text class="login-or-text">或完善资料</text><text class="login-or-line"></text></view>
+
+    <form bindsubmit="onLoginSubmit" class="login-form">
       <view class="login-profile">
         <button
           class="avatar-btn"
           open-type="chooseAvatar"
           bindchooseavatar="onChooseAvatar"
-          hover-class="none"
+          hover-class="avatar-btn-hover"
         >
           <image wx:if="{{loginAvatar}}" class="avatar-img" src="{{loginAvatar}}" mode="aspectFill" />
-          <text wx:else class="avatar-ph">微信头像</text>
+          <view wx:else class="avatar-empty">
+            <text class="avatar-empty-icon">＋</text>
+            <text class="avatar-empty-text">选头像</text>
+          </view>
         </button>
-        <input
-          class="nick-input"
-          name="nickName"
-          type="nickname"
-          placeholder="点这里选用微信昵称"
-          value="{{loginNick}}"
-          bindinput="onNickInput"
-          bindblur="onNickInput"
-        />
+        <view class="nick-wrap">
+          <text class="nick-label">昵称</text>
+          <input
+            class="nick-input"
+            name="nickName"
+            type="nickname"
+            placeholder="点这里选用微信昵称"
+            value="{{loginNick}}"
+            bindinput="onNickInput"
+            bindblur="onNickInput"
+          />
+        </view>
       </view>
       <button
-        class="login-btn"
+        class="login-btn login-btn-secondary"
         form-type="submit"
         loading="{{loginLoading}}"
+        hover-class="login-btn-hover"
       >确认登录</button>
     </form>
     <view class="login-cancel" bindtap="closeLogin">稍后再说</view>

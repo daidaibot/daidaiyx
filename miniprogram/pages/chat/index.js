@@ -598,6 +598,76 @@ Page({
       wx.showToast({ title: '请填写或选用微信昵称', icon: 'none' });
       return;
     }
+    this._finishLogin({ nickName, avatarUrl });
+  },
+
+  /** 微信授权弹窗拿头像昵称，再换 openid */
+  onWxAuthLogin() {
+    if (this.data.loginLoading) return;
+    this.setData({ loginLoading: true });
+
+    const afterProfile = (nickName, avatarUrl) => {
+      if (!nickName && !avatarUrl) {
+        this.setData({ loginLoading: false });
+        wx.showModal({
+          title: '未能获取资料',
+          content: '请点选上方头像和昵称，再点「确认登录」',
+          showCancel: false,
+        });
+        return;
+      }
+      this.setData({
+        loginNick: nickName || this.data.loginNick,
+        loginAvatar: avatarUrl || this.data.loginAvatar,
+      });
+      this._finishLogin({
+        nickName: nickName || this.data.loginNick || '微信用户',
+        avatarUrl: avatarUrl || this.data.loginAvatar || '',
+      });
+    };
+
+    const runGetUserProfile = () => {
+      if (typeof wx.getUserProfile !== 'function') {
+        this.setData({ loginLoading: false });
+        wx.showModal({
+          title: '请完善资料',
+          content: '当前基础库不支持一键授权，请点选头像和昵称后确认登录',
+          showCancel: false,
+        });
+        return;
+      }
+      wx.getUserProfile({
+        desc: '用于完善呆呆网络个人资料',
+        success: (res) => {
+          const info = (res && res.userInfo) || {};
+          afterProfile(
+            String(info.nickName || '').trim(),
+            String(info.avatarUrl || '').trim()
+          );
+        },
+        fail: () => {
+          this.setData({ loginLoading: false });
+          wx.showModal({
+            title: '授权未完成',
+            content:
+              '微信已限制一键拉取资料。请点选头像（微信头像）和昵称后，再点「确认登录」。',
+            showCancel: false,
+          });
+        },
+      });
+    };
+
+    if (typeof wx.requirePrivacyAuthorize === 'function') {
+      wx.requirePrivacyAuthorize({
+        success: runGetUserProfile,
+        fail: runGetUserProfile,
+      });
+    } else {
+      runGetUserProfile();
+    }
+  },
+
+  _finishLogin({ nickName, avatarUrl }) {
     this.setData({ loginLoading: true, loginNick: nickName });
     loginWithWeChat({ nickName, avatarUrl })
       .then((user) => {

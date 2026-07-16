@@ -524,3 +524,29 @@ body {
   .logout { margin-top: 0; margin-left: auto; }
   .grid-2 { grid-template-columns: 1fr; }
 }
+
+.user-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #e8f5ec;
+  flex-shrink: 0;
+}
+.user-avatar.ph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #40916c;
+  font-weight: 600;
+}
+.mono {
+  font-size: 12px;
+  word-break: break-all;
+}

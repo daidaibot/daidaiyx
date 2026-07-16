@@ -191,7 +191,7 @@ function adminAuth(req, res, next) {
 }
 
 function issueUserSession({ token, openid, unionid, platform, nickName, avatarUrl, ip }) {
-  if (!db.isReady() || !openid || !token) return;
+  if (!openid || !token) return;
   authStore
     .upsertUser({ openid, unionid, platform, nickName, avatarUrl })
     .then((user) =>
@@ -204,7 +204,9 @@ function issueUserSession({ token, openid, unionid, platform, nickName, avatarUr
         ttlMs: authStore.USER_TTL_MS,
       })
     )
-    .catch(() => {});
+    .catch((err) => {
+      console.warn("issueUserSession failed:", err && err.message);
+    });
 }
 
 function gateProductApi(kind) {
@@ -333,6 +335,25 @@ app.post("/api/admin/logout", adminAuth, async (req, res) => {
   ADMIN_TOKENS.delete(token);
   await authStore.revokeSession(token);
   res.json({ ok: true });
+});
+
+app.get("/api/admin/users", adminAuth, async (req, res) => {
+  try {
+    const limit = Number(req.query.limit) || 50;
+    const offset = Number(req.query.offset) || 0;
+    const q = String(req.query.q || "").trim();
+    const data = await authStore.listUsers({ limit, offset, q });
+    res.json({
+      ok: true,
+      total: data.total,
+      users: data.users,
+      source: data.source,
+      dbReady: db.isReady(),
+    });
+  } catch (err) {
+    console.error("admin users error:", err);
+    res.status(500).json({ ok: false, error: { message: err.message || "读取用户失败" } });
+  }
 });
 
 app.get("/api/admin/overview", adminAuth, async (_req, res) => {

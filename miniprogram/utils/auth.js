@@ -134,10 +134,6 @@ function loginWithWeChat(profile = {}) {
       reject(new Error('请填写微信昵称'));
       return;
     }
-    if (!avatarUrl) {
-      reject(new Error('请选择微信头像'));
-      return;
-    }
 
     wx.login({
       success: (loginRes) => {
