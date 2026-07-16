@@ -86,38 +86,33 @@ function postAuth(path, data) {
       data: data || {},
       success: (res) => {
         const body = res.data || {};
-        if (res.statusCode >= 200 && res.statusCode < 300 && body.ok && body.openid) {
-          resolve(saveSession(body));
+        if (res.statusCode >= 200 && res.statusCode < 300 && body.ok) {
+          resolve(body);
           return;
         }
-        reject(new Error((body.error && body.error.message) || `登录失败(${res.statusCode})`));
+        reject(new Error((body.error && body.error.message) || `请求失败(${res.statusCode})`));
       },
       fail: () => reject(new Error('网络错误，请稍后再试')),
     });
   });
 }
 
-/** 手机号或邮箱 + 密码登录 */
-function loginWithAccount({ account, password }) {
-  return postAuth('/api/auth/account-login', { account, password });
+function sendLoginCode(account) {
+  return postAuth('/api/auth/send-code', { account });
 }
 
-/** 注册 */
-function registerAccount({ account, password, nickName }) {
-  return postAuth('/api/auth/register', { account, password, nickName });
+function loginWithCode(account, code) {
+  return postAuth('/api/auth/code-login', { account, code }).then((body) => {
+    if (!body.openid) return Promise.reject(new Error('登录失败'));
+    return saveSession(body);
+  });
 }
 
-/** 微信一键手机号登录 */
 function loginWithPhoneCode(code) {
-  return postAuth('/api/auth/phone-login', { code });
-}
-
-/** 兼容旧调用名 */
-function loginWithWeChat(profile = {}) {
-  if (profile.account && profile.password) {
-    return loginWithAccount(profile);
-  }
-  return Promise.reject(new Error('请使用手机号或邮箱登录'));
+  return postAuth('/api/auth/phone-login', { code }).then((body) => {
+    if (!body.openid) return Promise.reject(new Error('登录失败'));
+    return saveSession(body);
+  });
 }
 
 module.exports = {
@@ -126,8 +121,7 @@ module.exports = {
   isLoggedIn,
   saveSession,
   clearSession,
-  loginWithAccount,
-  registerAccount,
+  sendLoginCode,
+  loginWithCode,
   loginWithPhoneCode,
-  loginWithWeChat,
 };

@@ -10,8 +10,8 @@ const {
 const {
   getUser,
   isLoggedIn,
-  loginWithAccount,
-  registerAccount,
+  sendLoginCode,
+  loginWithCode,
   loginWithPhoneCode,
   clearSession,
 } = require('../../utils/auth');
@@ -326,9 +326,10 @@ Page({
     entered: false,
     loggedIn: false,
     loginLoading: false,
-    loginMode: 'login',
     loginAccount: '',
-    loginPassword: '',
+    loginCode: '',
+    codeCooling: false,
+    codeLeft: 60,
     loginNick: '',
     loginAvatar: '',
     user: { nickName: '游客', avatarUrl: '' },
@@ -555,14 +556,8 @@ Page({
     this.setData({ loginAccount: (e.detail && e.detail.value) || '' });
   },
 
-  onPasswordInput(e) {
-    this.setData({ loginPassword: (e.detail && e.detail.value) || '' });
-  },
-
-  toggleLoginMode() {
-    this.setData({
-      loginMode: this.data.loginMode === 'register' ? 'login' : 'register',
-    });
+  onCodeInput(e) {
+    this.setData({ loginCode: (e.detail && e.detail.value) || '' });
   },
 
   openLogin() {
@@ -598,12 +593,28 @@ Page({
     });
   },
 
+  _startCodeCooldown(sec) {
+    if (this._codeTimer) clearInterval(this._codeTimer);
+    let left = Number(sec) || 60;
+    this.setData({ codeCooling: true, codeLeft: left });
+    this._codeTimer = setInterval(() => {
+      left -= 1;
+      if (left <= 0) {
+        clearInterval(this._codeTimer);
+        this._codeTimer = null;
+        this.setData({ codeCooling: false, codeLeft: 60 });
+        return;
+      }
+      this.setData({ codeLeft: left });
+    }, 1000);
+  },
+
   _afterLoginSuccess(user) {
     this.setData({
       loggedIn: true,
       user,
       loginLoading: false,
-      loginPassword: '',
+      loginCode: '',
       showLogin: false,
       showDrawer: false,
       welcomeSub: '我是呆呆 AI · 聊天写作编程 · 生图改图',
@@ -619,28 +630,50 @@ Page({
     wx.showToast({ title: '登录成功', icon: 'success' });
   },
 
-  onAccountSubmit() {
+  onSendCode() {
+    if (this.data.codeCooling || this.data.loginLoading) return;
+    const account = String(this.data.loginAccount || '').trim();
+    if (!account) {
+      wx.showToast({ title: '请先输入手机号或邮箱', icon: 'none' });
+      return;
+    }
+    sendLoginCode(account)
+      .then((data) => {
+        this._startCodeCool(data.cooldownSec || 60);
+        const shown = data.previewCode || data.devCode;
+        if (shown) {
+          this.setData({ loginCode: String(shown) });
+          wx.showModal({
+            title: '验证码',
+            content: `${data.message || '验证码已生成'}：${shown}`,
+            showCancel: false,
+          });
+        } else {
+          wx.showToast({ title: data.message || '验证码已发送', icon: 'none' });
+        }
+      })
+      .catch((err) => {
+        wx.showToast({
+          title: (err && err.message) || '发送失败',
+          icon: 'none',
+        });
+      });
+  },
+
+  onCodeLogin() {
     if (this.data.loginLoading) return;
     const account = String(this.data.loginAccount || '').trim();
-    const password = String(this.data.loginPassword || '');
+    const code = String(this.data.loginCode || '').trim();
     if (!account) {
       wx.showToast({ title: '请输入手机号或邮箱', icon: 'none' });
       return;
     }
-    if (password.length < 6) {
-      wx.showToast({ title: '密码至少 6 位', icon: 'none' });
+    if (!code) {
+      wx.showToast({ title: '请输入验证码', icon: 'none' });
       return;
     }
     this.setData({ loginLoading: true });
-    const req =
-      this.data.loginMode === 'register'
-        ? registerAccount({
-            account,
-            password,
-            nickName: this.data.loginNick,
-          })
-        : loginWithAccount({ account, password });
-    req
+    loginWithCode(account, code)
       .then((user) => this._afterLoginSuccess(user))
       .catch((err) => {
         this.setData({ loginLoading: false });

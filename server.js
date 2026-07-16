@@ -9,6 +9,7 @@ const db = require("./lib/db");
 const authStore = require("./lib/authStore");
 const chatStore = require("./lib/chatStore");
 const cosStore = require("./lib/cosStore");
+const otp = require("./lib/otp");
 const { outboundFetch, hasOutboundProxy, maskProxy, reloadProxies, proxyCount, seedProxiesToDataDir } = require("./lib/outbound");
 
 const app = express();
@@ -987,6 +988,41 @@ function saveUserAvatar(openid, avatarBase64) {
   fs.writeFileSync(file, buf);
   return safe;
 }
+
+/**
+ * 发送手机号 / 邮箱验证码
+ */
+app.post("/api/auth/send-code", async (req, res) => {
+  try {
+    const account = (req.body && (req.body.account || req.body.phone || req.body.email)) || "";
+    const data = await otp.sendCode(account, ops.clientIp(req));
+    return res.json(data);
+  } catch (err) {
+    const status =
+      err.code === "RATE"
+        ? 429
+        : err.code === "BAD_ACCOUNT"
+          ? 400
+          : err.code === "NO_SMTP" || err.code === "NO_SMS"
+            ? 503
+            : 500;
+    return res.status(status).json({ ok: false, error: { message: err.message || "发送失败" } });
+  }
+});
+
+/**
+ * 验证码登录（未注册自动注册）
+ */
+app.post("/api/auth/code-login", async (req, res) => {
+  try {
+    const body = req.body || {};
+    const user = await otp.loginWithCode(body.account || body.phone || body.email, body.code);
+    return finishAccountLogin(res, req, user);
+  } catch (err) {
+    const status = err.code === "BAD_ACCOUNT" || err.code === "BAD_CODE" ? 401 : 500;
+    return res.status(status).json({ ok: false, error: { message: err.message || "登录失败" } });
+  }
+});
 
 /**
  * 手机号 / 邮箱 + 密码：注册

@@ -37,6 +37,8 @@ AppID：`wxdf3dcb6c1680f134`。
 | `MYSQL_USER` | 业务账号，如 `daidai_app` |
 | `MYSQL_PASSWORD` | 数据库密码 |
 | `MYSQL_DATABASE` | 库名，默认 `daidaiyx`（启动时自动建库建表） |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | 邮箱验证码（可选） |
+| `OTP_SMS_URL` | 短信网关 URL，POST `{ phone, code, minutes }`（可选） |
 
 配置 MySQL 后，**聊天记录、后台设置、后台日志、图片元数据** 会写入数据库，重部署不丢。图片文件仍在 `data/gen-images/`（挂卷或后续接 COS）。
 
