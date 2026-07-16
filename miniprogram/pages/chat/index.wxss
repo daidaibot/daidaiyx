@@ -1086,6 +1086,14 @@
   box-shadow: 0 12rpx 28rpx rgba(64, 145, 108, 0.28);
 }
 
+.login-btn-sm {
+  height: 72rpx !important;
+  line-height: 72rpx !important;
+  font-size: 28rpx !important;
+  letter-spacing: 1rpx;
+  box-shadow: 0 6rpx 16rpx rgba(64, 145, 108, 0.18) !important;
+}
+
 .login-btn-wx {
   margin-bottom: 8rpx !important;
 }
@@ -1094,6 +1102,10 @@
   background: #fff !important;
   color: #2d6a4f !important;
   border: 2rpx solid rgba(64, 145, 108, 0.35) !important;
+  box-shadow: none !important;
+}
+
+.login-btn-secondary.login-btn-sm {
   box-shadow: none !important;
 }
 

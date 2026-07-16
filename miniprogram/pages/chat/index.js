@@ -634,7 +634,7 @@ Page({
     if (this.data.codeCooling || this.data.loginLoading) return;
     const account = String(this.data.loginAccount || '').trim();
     if (!account) {
-      wx.showToast({ title: '请先输入手机号或邮箱', icon: 'none' });
+      wx.showToast({ title: '请输入 +86 手机号或 QQ 邮箱', icon: 'none' });
       return;
     }
     sendLoginCode(account)
@@ -665,7 +665,7 @@ Page({
     const account = String(this.data.loginAccount || '').trim();
     const code = String(this.data.loginCode || '').trim();
     if (!account) {
-      wx.showToast({ title: '请输入手机号或邮箱', icon: 'none' });
+      wx.showToast({ title: '请输入 +86 手机号或 QQ 邮箱', icon: 'none' });
       return;
     }
     if (!code) {
