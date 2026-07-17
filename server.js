@@ -1457,6 +1457,37 @@ app.get("/api/chat/health", (_req, res) => {
   res.json({ ok: true, product: "呆呆 AI" });
 });
 
+/** 我的资料：昵称/头像/会员身份/今日生图额度（小程序个人卡片用） */
+app.get("/api/me", authStore.userAuthRequired, async (req, res) => {
+  try {
+    const openid = req.user.openid;
+    const [row, stats] = await Promise.all([
+      authStore.fetchUserByOpenid(openid),
+      usageStore.getUserStats(openid, 1),
+    ]);
+    if (!row) {
+      return res.status(404).json({ ok: false, error: { message: "用户不存在" } });
+    }
+    const user = authStore.publicUser(row);
+    res.json({
+      ok: true,
+      user: {
+        openid: user.openid,
+        nickName: user.nickName,
+        avatarUrl: user.avatarUrl,
+        phone: user.phone,
+        email: user.email,
+        isMember: user.isMember,
+        createdAt: user.createdAt,
+      },
+      imageQuota: (stats && stats.imageQuota) || null,
+      today: (stats && stats.today) || null,
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: { message: err.message || "读取失败" } });
+  }
+});
+
 /** 用 DeepSeek 分析用户是否有生图/改图意向（非关键词规则） */
 app.post("/api/chat/intent", authStore.userAuthRequired, gateProductApi("chat"), async (req, res) => {
   const chatKey = ops.getChatKey();

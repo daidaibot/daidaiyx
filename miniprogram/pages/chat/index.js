@@ -431,6 +431,11 @@ Page({
     loginAvatar: '',
     user: { nickName: '游客', avatarUrl: '' },
     showDrawer: false,
+    showProfile: false,
+    profileLoading: false,
+    profile: null,
+    isMember: false,
+    memberSinceText: '',
     historyList: [],
     sessionId: '',
     sizes: [
@@ -775,6 +780,7 @@ Page({
       navSub: '随时帮忙',
     });
     this.refreshMasks();
+    this.fetchMyProfile({ silent: true });
     loadHistoryFromServer()
       .then((list) => {
         this.setData({ historyList: list || [] });
@@ -880,6 +886,10 @@ Page({
       maskPreview: allMasks().slice(0, 10),
       welcomeSub: '游客可逛 · 使用功能需登录',
       navSub: '游客模式',
+      showProfile: false,
+      profile: null,
+      isMember: false,
+      memberSinceText: '',
     });
     wx.showToast({ title: '已退出，仍可浏览', icon: 'none' });
   },
@@ -892,10 +902,82 @@ Page({
       showMaskPanel: false,
       showMaskCreate: false,
     });
+    // 静默刷新会员身份，让抽屉里的徽章保持最新
+    if (isLoggedIn()) this.fetchMyProfile({ silent: true });
   },
 
   closeDrawer() {
     this.setData({ showDrawer: false });
+  },
+
+  /** 拉取我的资料（会员身份 + 今日额度） */
+  fetchMyProfile(opts = {}) {
+    const app = getApp();
+    const apiBase = ((app.globalData && app.globalData.apiBase) || '').replace(/\/$/, '');
+    if (!apiBase || !isLoggedIn()) return Promise.resolve(null);
+    if (!opts.silent) this.setData({ profileLoading: true });
+    return new Promise((resolve) => {
+      wx.request({
+        url: `${apiBase}/api/me`,
+        method: 'GET',
+        timeout: 12000,
+        header: Object.assign({ 'content-type': 'application/json' }, authHeader()),
+        success: (res) => {
+          const data = typeof res.data === 'object' && res.data ? res.data : {};
+          if (res.statusCode === 200 && data.ok && data.user) {
+            const q = data.imageQuota || {};
+            const t = data.today || {};
+            const joined = Number(data.user.createdAt || 0);
+            const memberSinceText = joined
+              ? `${new Date(joined).getFullYear()}-${String(
+                  new Date(joined).getMonth() + 1
+                ).padStart(2, '0')}-${String(new Date(joined).getDate()).padStart(2, '0')}`
+              : '';
+            const profile = {
+              nickName: data.user.nickName || '用户',
+              avatarUrl: data.user.avatarUrl || '',
+              account: data.user.email || data.user.phone || '',
+              isMember: !!data.user.isMember,
+              quotaText: q.unlimited
+                ? '不限次数'
+                : `剩余 ${q.remaining != null ? q.remaining : Math.max(0, 2 - (q.used || 0))} / ${
+                    q.limit || 2
+                  } 次`,
+              chatToday: Number(t.chatOk || 0),
+              imageToday: Number(t.imageUsed || 0),
+            };
+            this.setData({
+              profile,
+              isMember: profile.isMember,
+              memberSinceText,
+              profileLoading: false,
+            });
+            resolve(profile);
+            return;
+          }
+          this.setData({ profileLoading: false });
+          resolve(null);
+        },
+        fail: () => {
+          this.setData({ profileLoading: false });
+          resolve(null);
+        },
+      });
+    });
+  },
+
+  /** 点击抽屉头像区域：登录用户看个人卡片，游客去登录 */
+  onOpenProfile() {
+    if (!isLoggedIn()) {
+      this.openLogin();
+      return;
+    }
+    this.setData({ showProfile: true });
+    this.fetchMyProfile();
+  },
+
+  closeProfile() {
+    this.setData({ showProfile: false });
   },
 
   goHome() {

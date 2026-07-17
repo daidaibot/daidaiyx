@@ -342,18 +342,27 @@
   <!-- 左侧抽屉 -->
   <view class="drawer-mask {{showDrawer ? 'show' : ''}}" bindtap="closeDrawer"></view>
   <view class="drawer {{showDrawer ? 'show' : ''}}" style="padding-top: {{statusBarHeight}}px;">
-    <view class="drawer-user">
-      <image
-        wx:if="{{loggedIn}}"
-        class="drawer-avatar"
-        src="{{user.avatarUrl || '/assets/daidai-avatar.png'}}"
-        mode="aspectFill"
-      />
-      <view wx:else class="drawer-avatar ph">游</view>
-      <view class="drawer-user-meta">
-        <view class="drawer-name">{{loggedIn ? user.nickName : '游客'}}</view>
-        <view class="drawer-tip">{{loggedIn ? '已登录 · 呆呆 AI' : '游客模式 · 使用需登录'}}</view>
+    <view class="drawer-user {{isMember ? 'vip' : ''}}" bindtap="onOpenProfile">
+      <view class="drawer-avatar-wrap {{isMember ? 'vip' : ''}}">
+        <image
+          wx:if="{{loggedIn}}"
+          class="drawer-avatar"
+          src="{{user.avatarUrl || '/assets/daidai-avatar.png'}}"
+          mode="aspectFill"
+        />
+        <view wx:else class="drawer-avatar ph">游</view>
+        <view wx:if="{{isMember}}" class="avatar-crown">👑</view>
       </view>
+      <view class="drawer-user-meta">
+        <view class="drawer-name-row">
+          <view class="drawer-name">{{loggedIn ? user.nickName : '游客'}}</view>
+          <view wx:if="{{loggedIn}}" class="member-pill {{isMember ? 'vip' : ''}}">
+            {{isMember ? '会员' : '普通'}}
+          </view>
+        </view>
+        <view class="drawer-tip">{{loggedIn ? (isMember ? '尊享会员 · 生图不限次数' : '已登录 · 呆呆 AI') : '游客模式 · 使用需登录'}}</view>
+      </view>
+      <view class="drawer-user-arrow">›</view>
     </view>
 
     <view class="drawer-item" bindtap="onNewChatFromDrawer">＋ 新对话</view>
@@ -381,6 +390,63 @@
     <view class="drawer-foot">
       <view wx:if="{{!loggedIn}}" class="drawer-item primary" bindtap="openLogin">登录以使用</view>
       <view wx:else class="drawer-item danger" bindtap="onLogout">退出登录</view>
+    </view>
+  </view>
+
+  <!-- 个人资料卡：普通 / 会员 -->
+  <view class="profile-mask {{showProfile ? 'show' : ''}}" bindtap="closeProfile"></view>
+  <view class="profile-card {{showProfile ? 'show' : ''}} {{isMember ? 'vip' : ''}}" catchtap="noop">
+    <view class="profile-banner {{isMember ? 'vip' : ''}}">
+      <view class="profile-banner-glow"></view>
+      <view class="profile-close" bindtap="closeProfile">✕</view>
+      <view class="profile-avatar-wrap {{isMember ? 'vip' : ''}}">
+        <image
+          class="profile-avatar"
+          src="{{(profile && profile.avatarUrl) || user.avatarUrl || '/assets/daidai-avatar.png'}}"
+          mode="aspectFill"
+        />
+        <view wx:if="{{isMember}}" class="profile-crown">👑</view>
+      </view>
+      <view class="profile-name">{{(profile && profile.nickName) || user.nickName}}</view>
+      <view class="profile-badge {{isMember ? 'vip' : ''}}">
+        {{isMember ? '✦ 尊享会员 ✦' : '普通用户'}}
+      </view>
+      <view wx:if="{{profile && profile.account}}" class="profile-account">{{profile.account}}</view>
+    </view>
+
+    <view class="profile-body">
+      <view wx:if="{{profileLoading}}" class="profile-loading">加载中…</view>
+      <block wx:else>
+        <view class="profile-stats">
+          <view class="profile-stat">
+            <view class="profile-stat-num {{isMember ? 'vip' : ''}}">
+              {{isMember ? '∞' : (profile ? profile.quotaText : '—')}}
+            </view>
+            <view class="profile-stat-label">今日生图额度</view>
+          </view>
+          <view class="profile-stat-divider"></view>
+          <view class="profile-stat">
+            <view class="profile-stat-num">{{profile ? profile.chatToday : '—'}}</view>
+            <view class="profile-stat-label">今日对话</view>
+          </view>
+          <view class="profile-stat-divider"></view>
+          <view class="profile-stat">
+            <view class="profile-stat-num">{{profile ? profile.imageToday : '—'}}</view>
+            <view class="profile-stat-label">今日出图</view>
+          </view>
+        </view>
+
+        <view wx:if="{{isMember}}" class="profile-perks vip">
+          <view class="perk-row"><text class="perk-ico">✨</text>生图 / 改图不限次数</view>
+          <view class="perk-row"><text class="perk-ico">⚡</text>专属通道，优先响应</view>
+        </view>
+        <view wx:else class="profile-perks">
+          <view class="perk-row muted"><text class="perk-ico">🎨</text>每天免费生图 / 改图共 2 次</view>
+          <view class="perk-row muted"><text class="perk-ico">👑</text>会员可不限次数，详询管理员开通</view>
+        </view>
+
+        <view wx:if="{{memberSinceText}}" class="profile-joined">加入于 {{memberSinceText}}</view>
+      </block>
     </view>
   </view>
 
