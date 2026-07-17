@@ -25,6 +25,7 @@
       <nav>
         <button class="nav on" data-tab="overview">总览</button>
         <button class="nav" data-tab="users">用户</button>
+        <button class="nav" data-tab="alerts">告警</button>
         <button class="nav" data-tab="ops">运维配置</button>
         <button class="nav" data-tab="logs">访问日志</button>
         <button class="nav" data-tab="errors">错误日志</button>
@@ -129,8 +130,9 @@
             <div class="box-h">用户总览</div>
             <span class="muted" id="usersMeta">—</span>
           </div>
+          <p class="hint">新注册默认普通用户（每天生图+改图共 2 次）。会员后台开通、不限次数，小程序不展示会员标识。封禁后无法登录。</p>
           <div class="toolbar wrap">
-            <input id="usersQuery" type="search" placeholder="搜索昵称 / openid" style="min-width:220px;flex:1;" />
+            <input id="usersQuery" type="search" placeholder="搜索昵称 / openid / 邮箱" style="min-width:220px;flex:1;" />
             <button type="button" class="btn" id="usersSearchBtn">搜索</button>
             <button type="button" class="btn ghost" id="usersRefreshBtn">刷新</button>
           </div>
@@ -139,19 +141,63 @@
               <thead>
                 <tr>
                   <th>用户</th>
-                  <th>手机 / 邮箱</th>
-                  <th>openid</th>
-                  <th>来源</th>
+                  <th>联系方式</th>
+                  <th>今日用量</th>
+                  <th>身份</th>
                   <th>最近登录</th>
+                  <th>操作</th>
                 </tr>
               </thead>
               <tbody id="usersBody">
-                <tr><td colspan="5" class="muted">加载中…</td></tr>
+                <tr><td colspan="6" class="muted">加载中…</td></tr>
               </tbody>
             </table>
           </div>
         </div>
       </section>
+
+      <!-- 告警 -->
+      <section id="tab-alerts" class="panel hidden">
+        <div class="box">
+          <div class="box-h-row">
+            <div class="box-h">运营告警</div>
+            <button type="button" class="btn ghost sm" id="alertsRefreshBtn">刷新</button>
+          </div>
+          <p class="hint">额度用尽、生图失败偏多、对话偏高等会显示在这里。</p>
+          <div id="alertsList" class="alerts-list muted">加载中…</div>
+          <div class="box-h" style="margin-top:18px;">今日用量 TOP</div>
+          <div class="table-wrap">
+            <table class="table compact">
+              <thead>
+                <tr>
+                  <th>openid</th>
+                  <th>对话成功/失败</th>
+                  <th>生图额度已用</th>
+                  <th>生图成功/失败</th>
+                  <th>改图成功/失败</th>
+                </tr>
+              </thead>
+              <tbody id="todayUsageBody">
+                <tr><td colspan="5" class="muted">—</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- 用户会话弹层 -->
+      <div id="userDetailMask" class="sheet-mask hidden"></div>
+      <div id="userDetailSheet" class="user-detail-sheet hidden">
+        <div class="box-h-row">
+          <div class="box-h" id="userDetailTitle">用户详情</div>
+          <button type="button" class="btn ghost sm" id="userDetailClose">关闭</button>
+        </div>
+        <pre id="userDetailStats" class="probe-out">—</pre>
+        <div class="box-h">会话列表</div>
+        <div id="userSessionsList" class="user-sessions">—</div>
+        <div class="box-h">会话内容</div>
+        <pre id="userSessionMessages" class="probe-out">点选左侧会话查看</pre>
+      </div>
 
       <!-- 运维配置：密钥 + 设置 + 能力 -->
       <section id="tab-ops" class="panel hidden">
@@ -199,23 +245,6 @@
                 <button type="button" class="btn" id="saveSecrets">保存密钥</button>
                 <button type="button" class="btn danger" id="clearChatKey">清除对话密钥</button>
                 <button type="button" class="btn danger" id="clearImageKey">清除生图密钥</button>
-              </div>
-            </div>
-
-            <div class="box form-box">
-              <div class="box-h">出站代理池（Webshare 等）</div>
-              <p class="hint">已内置 Webshare 代理池，部署后一般不用再粘贴。也可在此覆盖保存（写到 data/proxies.txt）。格式：<code>IP:端口:用户名:密码</code>。</p>
-              <p class="status-line">服务器出口 IP（白名单用）：<code id="egressIp">检测中…</code>
-                <button type="button" class="btn ghost" id="refreshEgressIp">刷新</button>
-                <button type="button" class="btn ghost" id="copyEgressIp">复制</button>
-              </p>
-              <p class="hint muted" id="egressIpNote">用账号密码连代理时一般不用加白名单；需要时把上面这个 IP 填进 Webshare。</p>
-              <label class="field">代理列表
-                <textarea id="proxyList" rows="8" placeholder="45.x.x.x:6896:user:pass"></textarea>
-              </label>
-              <p class="status-line" id="proxyHint">未加载</p>
-              <div class="toolbar wrap">
-                <button type="button" class="btn" id="saveProxies">保存代理池</button>
               </div>
             </div>
 
@@ -297,7 +326,7 @@
               <div class="box-h">呆呆 Image</div>
               <span class="pill" id="probePillImage">未测</span>
             </div>
-            <p class="hint">会真连上游 /v1/models（不扣生图费），验证密钥、代理与网络。</p>
+            <p class="hint">会真连上游 /v1/models（不扣生图费），验证密钥与网络。</p>
             <button type="button" class="btn" data-probe="image">探测呆呆 Image</button>
             <pre class="probe-out" id="probeImage">尚未探测</pre>
           </div>

@@ -17,6 +17,11 @@ function getToken() {
   }
 }
 
+function authHeader() {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 function isLoggedIn() {
   const u = getUser();
   return !!(u && u.openid && getToken());
@@ -124,13 +129,6 @@ function loginWithCode(account, code) {
   });
 }
 
-function loginWithPhoneCode(code) {
-  return postAuth('/api/auth/phone-login', { code }).then((body) => {
-    if (!body.openid) return Promise.reject(new Error('登录失败'));
-    return saveSession(body);
-  });
-}
-
 module.exports = {
   getUser,
   getToken,
@@ -139,5 +137,5 @@ module.exports = {
   clearSession,
   sendLoginCode,
   loginWithCode,
-  loginWithPhoneCode,
+  authHeader,
 };

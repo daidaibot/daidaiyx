@@ -2,7 +2,8 @@ const TOKEN_KEY = "daidai_admin_token";
 
 const TITLES = {
   overview: ["总览", "服务状态 · 快捷操作 · 健康检查"],
-  users: ["用户总览", "登录用户 · 昵称头像 · 最近活跃"],
+  users: ["用户总览", "普通额度 2 次/天 · 会员不限 · 封禁"],
+  alerts: ["运营告警", "额度 · 失败 · 偏高用量"],
   ops: ["运维配置", "开关 · 密钥 · 域名 · 公告"],
   logs: ["访问日志", "筛选 · 排查接口调用"],
   errors: ["错误日志", "失败与异常详情"],
@@ -141,31 +142,12 @@ function buildHealth(data) {
         : "缺少环境变量，小程序无法真登录",
     },
     {
-      ok: Boolean(
-        data.upstream?.imageBase &&
-          (/api\.openai\.com$/i.test(data.upstream.imageBase)
-            ? data.outboundProxy?.enabled
-            : true)
-      ),
-      level: (() => {
-        const base = data.upstream?.imageBase || "";
-        if (!base) return "warn";
-        if (/api\.openai\.com$/i.test(base)) {
-          return data.outboundProxy?.enabled ? "ok" : "warn";
-        }
-        return "ok";
-      })(),
+      ok: Boolean(data.upstream?.imageBase),
+      level: data.upstream?.imageBase ? "ok" : "warn",
       title: "生图上游",
-      tip: (() => {
-        const base = data.upstream?.imageBase || "";
-        if (!base) return "未读取到上游，请设 DAIDAI_IMAGE_BASE_URL=https://api.openai.com";
-        if (/api\.openai\.com$/i.test(base)) {
-          return data.outboundProxy?.enabled
-            ? `${base} · 代理池 ${data.outboundProxy.count || 0} 条`
-            : `${base}（官方 API，请在运维配置粘贴代理池，否则国内常不通）`;
-        }
-        return `${base}（自定义中转）`;
-      })(),
+      tip: data.upstream?.imageBase
+        ? String(data.upstream.imageBase)
+        : "未读取到上游，请设 DAIDAI_IMAGE_BASE_URL",
     },
     {
       ok: Boolean(data.publicApiBase || s.publicApiBase),
@@ -435,13 +417,29 @@ async function loadUsers() {
   const body = document.getElementById("usersBody");
   const meta = document.getElementById("usersMeta");
   const users = data.users || [];
-  meta.textContent = `共 ${data.total || 0} 人 · 存储 ${data.source === "mysql" ? "MySQL" : "本地文件"}${
-    data.dbReady ? "" : "（未连库）"
-  }`;
+  const memberCount = users.filter((u) => u.isMember).length;
+  const bannedCount = users.filter((u) => u.isBanned).length;
+  meta.textContent = `共 ${data.total || 0} 人 · 会员 ${memberCount} · 封禁 ${bannedCount} · ${
+    data.source === "mysql" ? "MySQL" : "本地文件"
+  }${data.dbReady ? "" : "（未连库）"}`;
   if (!users.length) {
-    body.innerHTML = `<tr><td colspan="5" class="muted">暂无用户。小程序登录成功后会出现在这里。</td></tr>`;
+    body.innerHTML = `<tr><td colspan="6" class="muted">暂无用户。小程序登录成功后会出现在这里。</td></tr>`;
     return;
   }
+
+  // 并行拉今日用量（失败不挡列表）
+  const usageMap = {};
+  await Promise.all(
+    users.slice(0, 40).map(async (u) => {
+      try {
+        const st = await api(`/api/admin/users/${encodeURIComponent(u.openid)}/stats?days=1`);
+        usageMap[u.openid] = st;
+      } catch {
+        /* ignore */
+      }
+    })
+  );
+
   body.innerHTML = users
     .map((u) => {
       const name = esc(u.nickName || "用户");
@@ -449,15 +447,172 @@ async function loadUsers() {
         ? `<img class="user-avatar" src="${esc(u.avatarUrl)}" alt="" />`
         : `<span class="user-avatar ph">呆</span>`;
       const contact = esc(u.phone || u.email || "—");
+      const st = usageMap[u.openid];
+      const t = (st && st.today) || {};
+      const q = (st && st.imageQuota) || {};
+      const usageTxt = st
+        ? `聊 ${Number(t.chatOk || 0)}/${Number(t.chatFail || 0)} · 图 ${
+            q.unlimited ? "不限" : `${Number(q.used || 0)}/${q.limit || 2}`
+          }`
+        : "—";
+      const badges = [
+        u.isBanned ? `<span class="pill bad">封禁</span>` : "",
+        u.isMember ? `<span class="pill ok">会员</span>` : `<span class="pill">普通</span>`,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const memberBtn = u.isMember
+        ? `<button type="button" class="btn ghost sm" data-member-off="${esc(u.openid)}">取消会员</button>`
+        : `<button type="button" class="btn sm" data-member-on="${esc(u.openid)}">设会员</button>`;
+      const banBtn = u.isBanned
+        ? `<button type="button" class="btn sm" data-ban-off="${esc(u.openid)}">解封</button>`
+        : `<button type="button" class="btn ghost sm" data-ban-on="${esc(u.openid)}">封禁</button>`;
+      const detailBtn = `<button type="button" class="btn ghost sm" data-user-detail="${esc(
+        u.openid
+      )}" data-user-name="${esc(u.nickName || "")}">详情</button>`;
       return `<tr>
-        <td><div class="user-cell">${avatar}<span>${name}</span></div></td>
+        <td><div class="user-cell">${avatar}<div><div>${name}</div><code class="mono small">${esc(
+        u.openid || ""
+      )}</code></div></div></td>
         <td>${contact}</td>
-        <td><code class="mono">${esc(u.openid || "")}</code></td>
-        <td>${esc(u.platform || "account")}</td>
+        <td>${esc(usageTxt)}</td>
+        <td>${badges}</td>
         <td>${fmtTime(u.lastLoginAt)}</td>
+        <td class="ops-cell">${detailBtn} ${memberBtn} ${banBtn}</td>
       </tr>`;
     })
     .join("");
+}
+
+async function setUserMember(openid, isMember) {
+  await api("/api/admin/users/member", {
+    method: "POST",
+    body: JSON.stringify({ openid, isMember }),
+  });
+  toast(isMember ? "已设为会员" : "已取消会员", "ok");
+  await loadUsers();
+}
+
+async function setUserBanned(openid, isBanned) {
+  await api("/api/admin/users/ban", {
+    method: "POST",
+    body: JSON.stringify({ openid, isBanned }),
+  });
+  toast(isBanned ? "已封禁" : "已解封", "ok");
+  await loadUsers();
+}
+
+async function loadAlerts() {
+  const data = await api("/api/admin/alerts");
+  const list = document.getElementById("alertsList");
+  const body = document.getElementById("todayUsageBody");
+  const alerts = data.alerts || [];
+  if (!alerts.length) {
+    list.innerHTML = `<div class="muted">暂无告警 · 日期 ${esc(data.date || "")}</div>`;
+  } else {
+    list.innerHTML = alerts
+      .map(
+        (a) =>
+          `<div class="alert-item ${esc(a.level || "")}">
+            <strong>${esc(a.type || "")}</strong>
+            ${a.openid ? `<code class="mono">${esc(a.openid)}</code>` : ""}
+            <span>${esc(a.message || "")}</span>
+          </div>`
+      )
+      .join("");
+  }
+  const rows = data.todayUsage || [];
+  body.innerHTML = rows.length
+    ? rows
+        .map(
+          (u) => `<tr>
+      <td><code class="mono">${esc(u.openid)}</code></td>
+      <td>${Number(u.chatOk || 0)} / ${Number(u.chatFail || 0)}</td>
+      <td>${Number(u.imageUsed || 0)}</td>
+      <td>${Number(u.imageOk || 0)} / ${Number(u.imageFail || 0)}</td>
+      <td>${Number(u.imageEditOk || 0)} / ${Number(u.imageEditFail || 0)}</td>
+    </tr>`
+        )
+        .join("")
+    : `<tr><td colspan="5" class="muted">今日暂无用量</td></tr>`;
+}
+
+async function openUserDetail(openid, name) {
+  const mask = document.getElementById("userDetailMask");
+  const sheet = document.getElementById("userDetailSheet");
+  document.getElementById("userDetailTitle").textContent = `用户 · ${name || openid}`;
+  document.getElementById("userDetailStats").textContent = "加载中…";
+  document.getElementById("userSessionsList").innerHTML = "加载中…";
+  document.getElementById("userSessionMessages").textContent = "点选会话查看";
+  mask.classList.remove("hidden");
+  sheet.classList.remove("hidden");
+
+  try {
+    const [statsData, sessData] = await Promise.all([
+      api(`/api/admin/users/${encodeURIComponent(openid)}/stats?days=7`),
+      api(`/api/admin/users/${encodeURIComponent(openid)}/sessions`),
+    ]);
+    const q = statsData.imageQuota || {};
+    const t = statsData.today || {};
+    document.getElementById("userDetailStats").textContent = [
+      `会员：${statsData.isMember ? "是" : "否"}`,
+      `今日对话：成功 ${t.chatOk || 0} / 失败 ${t.chatFail || 0}`,
+      `今日生图额度：${
+        q.unlimited ? "不限" : `${q.used || 0}/${q.limit || 2}（剩余 ${q.remaining ?? "—"}）`
+      }`,
+      `今日生图：成功 ${t.imageOk || 0} / 失败 ${t.imageFail || 0}`,
+      `今日改图：成功 ${t.imageEditOk || 0} / 失败 ${t.imageEditFail || 0}`,
+    ].join("\n");
+
+    const sessions = sessData.sessions || [];
+    const box = document.getElementById("userSessionsList");
+    if (!sessions.length) {
+      box.innerHTML = `<div class="muted">暂无云端会话（需用户登录并同步聊天记录）</div>`;
+      return;
+    }
+    box.innerHTML = sessions
+      .map(
+        (s) =>
+          `<button type="button" class="session-item" data-openid="${esc(openid)}" data-sid="${esc(
+            s.id
+          )}">
+            <div class="session-title">${esc(s.title || "对话")}</div>
+            <div class="muted small">${esc(s.preview || "")}</div>
+            <div class="muted small">${fmtTime(s.updatedAt)}</div>
+          </button>`
+      )
+      .join("");
+  } catch (err) {
+    document.getElementById("userDetailStats").textContent = err.message || "加载失败";
+  }
+}
+
+function closeUserDetail() {
+  document.getElementById("userDetailMask").classList.add("hidden");
+  document.getElementById("userDetailSheet").classList.add("hidden");
+}
+
+async function openUserSession(openid, sessionId) {
+  const el = document.getElementById("userSessionMessages");
+  el.textContent = "加载中…";
+  try {
+    const data = await api(
+      `/api/admin/users/${encodeURIComponent(openid)}/sessions/${encodeURIComponent(sessionId)}`
+    );
+    const msgs = (data.session && data.session.messages) || [];
+    el.textContent = msgs.length
+      ? msgs
+          .map((m) => {
+            const role = m.role === "user" ? "用户" : "AI";
+            const text = String(m.content || "").slice(0, 800);
+            const img = m.image ? "\n[图片]" : "";
+            return `【${role}】${text}${img}`;
+          })
+          .join("\n\n——\n\n")
+      : "无消息";
+  } catch (err) {
+    el.textContent = err.message || "加载失败";
+  }
 }
 
 async function loadLogs() {
@@ -513,65 +668,6 @@ async function loadSecretsForm() {
   document.getElementById("secImageHint").textContent = sec.imageConfigured
     ? `已配置 · ${sec.imageMasked}${sec.imageFromAdmin ? " · 来自后台" : " · 来自环境变量"}`
     : "未配置";
-  await loadProxiesForm();
-}
-
-async function loadProxiesForm() {
-  try {
-    const data = await api("/api/admin/proxies");
-    document.getElementById("proxyList").value = data.text || "";
-    document.getElementById("proxyHint").textContent = data.count
-      ? `已加载 ${data.count} 条 · ${data.file || "data/proxies.txt"}`
-      : "尚未配置代理（生图将直连上游，国内可能不通）";
-  } catch (e) {
-    document.getElementById("proxyHint").textContent = e.message || "加载失败";
-  }
-  await loadEgressIp();
-}
-
-async function loadEgressIp() {
-  const el = document.getElementById("egressIp");
-  if (!el) return;
-  el.textContent = "检测中…";
-  try {
-    const data = await api("/api/admin/egress-ip");
-    el.textContent = data.ip || "—";
-    el.dataset.ip = data.ip || "";
-    const note = document.getElementById("egressIpNote");
-    if (note && data.note) note.textContent = data.note;
-  } catch (e) {
-    el.textContent = e.message || "获取失败";
-    el.dataset.ip = "";
-  }
-}
-
-async function copyEgressIp() {
-  const ip = (document.getElementById("egressIp") || {}).dataset?.ip || "";
-  if (!ip) {
-    toast("还没有可用的出口 IP", "bad");
-    return;
-  }
-  try {
-    await navigator.clipboard.writeText(ip);
-    toast(`已复制 ${ip}`, "ok");
-  } catch {
-    toast(ip, "ok");
-  }
-}
-
-async function saveProxies() {
-  try {
-    const text = document.getElementById("proxyList").value || "";
-    const data = await api("/api/admin/proxies", {
-      method: "PUT",
-      body: JSON.stringify({ text }),
-    });
-    toast(`代理池已保存（${data.count || 0} 条）`, "ok");
-    await loadProxiesForm();
-    await loadOverview();
-  } catch (e) {
-    toast(e.message || "保存失败", "bad");
-  }
 }
 
 async function saveSettings(patch, silent) {
@@ -725,6 +821,7 @@ function switchTab(name) {
   if (name === "logs") loadLogs().catch((e) => toast(e.message, "bad"));
   if (name === "errors") loadErrors().catch((e) => toast(e.message, "bad"));
   if (name === "users") loadUsers().catch((e) => toast(e.message, "bad"));
+  if (name === "alerts") loadAlerts().catch((e) => toast(e.message, "bad"));
   if (name === "ops") {
     loadSettingsForm().catch((e) => toast(e.message, "bad"));
     loadOverview().catch(() => {});
@@ -828,9 +925,6 @@ document.getElementById("saveSettings").addEventListener("click", () =>
   saveSettingsForm().catch(() => {})
 );
 document.getElementById("saveSecrets").addEventListener("click", () => saveSecrets());
-document.getElementById("saveProxies").addEventListener("click", () => saveProxies());
-document.getElementById("refreshEgressIp").addEventListener("click", () => loadEgressIp());
-document.getElementById("copyEgressIp").addEventListener("click", () => copyEgressIp());
 
 document.getElementById("clearChatKey").addEventListener("click", async () => {
   if (!confirm("清除后台保存的呆呆 AI 密钥？")) return;
@@ -910,6 +1004,71 @@ if (usersRefreshBtn) usersRefreshBtn.addEventListener("click", () => loadUsers()
 if (usersQuery) {
   usersQuery.addEventListener("keydown", (e) => {
     if (e.key === "Enter") loadUsers().catch((err) => toast(err.message, "bad"));
+  });
+}
+
+const usersBody = document.getElementById("usersBody");
+if (usersBody) {
+  usersBody.addEventListener("click", (e) => {
+    const onBtn = e.target.closest("[data-member-on]");
+    const offBtn = e.target.closest("[data-member-off]");
+    const banOn = e.target.closest("[data-ban-on]");
+    const banOff = e.target.closest("[data-ban-off]");
+    const detail = e.target.closest("[data-user-detail]");
+    if (onBtn) {
+      setUserMember(onBtn.getAttribute("data-member-on"), true).catch((err) =>
+        toast(err.message, "bad")
+      );
+      return;
+    }
+    if (offBtn) {
+      setUserMember(offBtn.getAttribute("data-member-off"), false).catch((err) =>
+        toast(err.message, "bad")
+      );
+      return;
+    }
+    if (banOn) {
+      if (!confirm("确认封禁该用户？封禁后无法登录。")) return;
+      setUserBanned(banOn.getAttribute("data-ban-on"), true).catch((err) =>
+        toast(err.message, "bad")
+      );
+      return;
+    }
+    if (banOff) {
+      setUserBanned(banOff.getAttribute("data-ban-off"), false).catch((err) =>
+        toast(err.message, "bad")
+      );
+      return;
+    }
+    if (detail) {
+      openUserDetail(
+        detail.getAttribute("data-user-detail"),
+        detail.getAttribute("data-user-name") || ""
+      ).catch((err) => toast(err.message, "bad"));
+    }
+  });
+}
+
+const alertsRefreshBtn = document.getElementById("alertsRefreshBtn");
+if (alertsRefreshBtn) {
+  alertsRefreshBtn.addEventListener("click", () =>
+    loadAlerts().catch((e) => toast(e.message, "bad"))
+  );
+}
+
+const userDetailClose = document.getElementById("userDetailClose");
+const userDetailMask = document.getElementById("userDetailMask");
+if (userDetailClose) userDetailClose.addEventListener("click", closeUserDetail);
+if (userDetailMask) userDetailMask.addEventListener("click", closeUserDetail);
+
+const userSessionsList = document.getElementById("userSessionsList");
+if (userSessionsList) {
+  userSessionsList.addEventListener("click", (e) => {
+    const item = e.target.closest("[data-sid]");
+    if (!item) return;
+    openUserSession(item.getAttribute("data-openid"), item.getAttribute("data-sid")).catch(
+      (err) => toast(err.message, "bad")
+    );
   });
 }
 

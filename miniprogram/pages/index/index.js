@@ -1,5 +1,4 @@
 const { getLayout } = require('../../utils/layout');
-const { checkServiceReady } = require('../../utils/status');
 
 Page({
   data: {
@@ -59,9 +58,9 @@ Page({
 
   onShow() {
     this.applyLayout();
-    if (this.data.aiOpening) {
+    // 从聊天页返回时清过渡层；导航进行中不要清，否则会打断打开
+    if (this.data.aiOpening && !this._opening) {
       this.setData({ aiOpening: false, aiPress: false });
-      this._opening = false;
     }
   },
 
@@ -105,20 +104,33 @@ Page({
 
   goAi() {
     if (this._opening) return;
-    checkServiceReady().then((st) => {
-      if (!st.ok) return;
-      this._opening = true;
-      this.setData({ aiPress: true, aiOpening: true });
+    this._opening = true;
+    this.setData({ aiPress: true, aiOpening: true });
 
-      setTimeout(() => {
-        wx.navigateTo({
-          url: '/pages/chat/index?enter=1',
-          fail: () => {
-            this.setData({ aiOpening: false, aiPress: false });
-            this._opening = false;
-          },
-        });
-      }, 420);
-    });
+    const finish = (ok) => {
+      this._opening = false;
+      this.setData({ aiOpening: false, aiPress: false });
+      if (!ok) {
+        wx.showToast({ title: '无法打开呆呆 AI', icon: 'none' });
+      }
+    };
+
+    // 不因状态接口卡住进不去；短过渡后直接进页
+    setTimeout(() => {
+      wx.navigateTo({
+        url: '/pages/chat/index',
+        success: () => {
+          // 等页面盖上后再收过渡层，避免闪一下首页
+          setTimeout(() => finish(true), 260);
+        },
+        fail: () => {
+          wx.redirectTo({
+            url: '/pages/chat/index',
+            success: () => finish(true),
+            fail: () => finish(false),
+          });
+        },
+      });
+    }, 220);
   },
 });

@@ -14,12 +14,9 @@ COPY server.js ./
 COPY lib ./lib
 COPY admin ./admin
 COPY site ./site
-COPY config ./config
-RUN mkdir -p /app/data
-VOLUME ["/app/data"]
 
+# 监听端口须与云托管「服务版本」配置一致（官方默认 80）
 ENV PORT=80
 EXPOSE 80
-ENV DATA_DIR=/app/data
 
 CMD ["npm", "start"]

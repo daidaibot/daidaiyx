@@ -540,18 +540,14 @@ button {
 }
 
 .ai-transit-avatar {
-  width: 56px;
-  height: 56px;
-  border-radius: 18px;
-  background: linear-gradient(135deg, #3b82f6, #60a5fa);
-  color: #fff;
-  font-size: 22px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: block;
   margin-bottom: 14px;
   box-shadow: 0 6px 16px rgba(59, 130, 246, 0.25);
+  background: #dbeafe;
+  object-fit: cover;
   opacity: 0;
   transform: scale(0.86);
   transition: opacity 0.35s ease 0.12s, transform 0.35s ease 0.12s;

@@ -532,18 +532,13 @@
 }
 
 .ai-transit-avatar {
-  width: 112rpx;
-  height: 112rpx;
-  border-radius: 36rpx;
-  background: linear-gradient(135deg, #3b82f6, #60a5fa);
-  color: #fff;
-  font-size: 44rpx;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 128rpx;
+  height: 128rpx;
+  border-radius: 50%;
+  display: block;
   margin-bottom: 28rpx;
   box-shadow: 0 12rpx 32rpx rgba(59, 130, 246, 0.25);
+  background: #dbeafe;
   opacity: 0;
   transform: scale(0.86);
   transition: opacity 0.35s ease 0.12s, transform 0.35s cubic-bezier(0.22, 1, 0.36, 1) 0.12s;

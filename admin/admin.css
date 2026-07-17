@@ -550,3 +550,48 @@ body {
   font-size: 12px;
   word-break: break-all;
 }
+
+.ops-cell { display: flex; flex-wrap: wrap; gap: 6px; }
+.small { font-size: 11px; opacity: 0.75; }
+.alerts-list { display: flex; flex-direction: column; gap: 8px; }
+.alert-item {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f4f7f5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+.alert-item.warn { background: #fff7e8; }
+.alert-item.bad { background: #fdecec; }
+.sheet-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  z-index: 40;
+}
+.user-detail-sheet {
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: min(520px, 96vw);
+  background: #fff;
+  z-index: 50;
+  padding: 18px;
+  overflow: auto;
+  box-shadow: -12px 0 40px rgba(15, 23, 42, 0.12);
+}
+.user-sessions { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.session-item {
+  text-align: left;
+  border: 1px solid #e6eee9;
+  background: #f8fbf9;
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.session-item:hover { border-color: #95d5b2; }
+.session-title { font-weight: 600; font-size: 13px; margin-bottom: 4px; }

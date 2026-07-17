@@ -4,6 +4,7 @@ const {
   allMasks,
   findMask,
   loadCustomMasks,
+  refreshCustomMasksFromServer,
   createCustomMask,
   deleteCustomMask,
 } = require('../../utils/masks');
@@ -12,8 +13,9 @@ const {
   isLoggedIn,
   sendLoginCode,
   loginWithCode,
-  loginWithPhoneCode,
   clearSession,
+  authHeader,
+  getToken,
 } = require('../../utils/auth');
 const {
   loadHistory,
@@ -24,6 +26,7 @@ const {
   getSession,
   removeSession,
   clearHistory,
+  clearLocalCache,
 } = require('../../utils/history');
 const { getLayout } = require('../../utils/layout');
 const { checkServiceReady } = require('../../utils/status');
@@ -90,7 +93,8 @@ function skillById(id) {
 function systemPrompt(skill, mask) {
   const brand =
     '你是「呆呆 AI」，由呆呆网络提供。对外只称呼自己为呆呆 AI，不要提及任何底层模型、厂商或 API 名称。' +
-    '不要说自己无法生成图片，也不要推荐其他绘画工具；需要出图时系统会走生图能力。' +
+    '你自己不能直接出图。若用户想生成图片/照片/海报/壁纸等，不要口头答应「我帮你生成了」「马上出图」或假装已经画好；' +
+    '请用一两句话确认需求，并提醒用户点击对话里的「生成图片」按钮（或先说清楚想画什么）。真正出图由系统完成。' +
     '对话历史里若出现「【已生成图片】」或「【已改图】」，表示图片已经成功生成并展示给用户；' +
     '用户再问「看到了吗 / 这张图 / 照片」时，必须明确确认图片已生成且你清楚刚才的出图结果，禁止再说「还没生成 / 系统暂时没图 / 请稍等马上就来」。';
   if (mask && mask.prompt) {
@@ -165,14 +169,34 @@ function messagesToChatHistory(messages, buildQuotedContentFn) {
     .filter((m) => m.content);
 }
 
-/** 普通对话框里也能识别「要出图」并走 /api/image */
+/** 普通对话框里识别「要出图 / 照片」意图 */
 function looksLikeImageRequest(text) {
   const s = String(text || '').trim();
   if (!s) return false;
   if (/^🎨/.test(s)) return true;
-  return /生图|画一张|画个|帮我画|画张|生成.*(图|海报|封面|插画|壁纸|logo|图标)|做[一张个]?(广告图|海报|封面|插画|壁纸|宣传图|图)|出一张图|文生图|广告图|宣传图|海报设计|封面图/i.test(
-    s
-  );
+  if (
+    /生图|文生图|画一张|画一幅|画个|画张|帮我画|来[一张张]?图|出[一张张]?图|做[一张张]?图|出图|做图|海报设计|封面图|宣传图|广告图/.test(
+      s
+    )
+  ) {
+    return true;
+  }
+  if (
+    /生成.*(图|照片|相片|海报|封面|插画|壁纸|logo|图标|头像|写真)|做[一张个].*(图|海报|封面|照片)|画一[张幅].{0,20}/i.test(
+      s
+    )
+  ) {
+    return true;
+  }
+  if (
+    /(想|要|帮我|给我|来).{0,8}(一张|一个|张).{0,12}(照片|相片|图|海报|封面|壁纸|插画|头像|写真)/.test(s)
+  ) {
+    return true;
+  }
+  if (/(照片|相片|壁纸|插画|海报|封面).{0,6}(生成|画|做|出)/.test(s)) {
+    return true;
+  }
+  return false;
 }
 
 function stripImageCue(text) {
@@ -323,7 +347,7 @@ Page({
     editImagePath: '',
     editImageB64: '',
     editMime: 'image/jpeg',
-    entered: false,
+    entered: true,
     loggedIn: false,
     loginLoading: false,
     loginAccount: '',
@@ -351,12 +375,44 @@ Page({
     quoteMsg: null,
     quoteMode: '',
     editingMsgId: '',
+    inputFocus: false,
+    keyboardHeight: 0,
   },
 
   _timer: null,
   _msgMenuMsg: null,
+  _kbHandler: null,
 
   noop() {},
+
+  dismissKeyboard() {
+    try {
+      wx.hideKeyboard({ complete: () => {} });
+    } catch (e) {
+      /* ignore */
+    }
+    if (this.data.inputFocus || this.data.keyboardHeight) {
+      this.setData({ inputFocus: false, keyboardHeight: 0 });
+    }
+  },
+
+  onInputFocus(e) {
+    const h = (e && e.detail && e.detail.height) || 0;
+    this.setData({
+      inputFocus: true,
+      keyboardHeight: h > 0 ? h : this.data.keyboardHeight,
+    });
+  },
+
+  onInputBlur() {
+    this.setData({ inputFocus: false, keyboardHeight: 0 });
+  },
+
+  onKeyboardHeight(e) {
+    const h = Math.max(0, Number((e && e.detail && e.detail.height) || 0));
+    if (h === this.data.keyboardHeight) return;
+    this.setData({ keyboardHeight: h, inputFocus: h > 0 });
+  },
 
   applyLayout() {
     const layout = getLayout();
@@ -371,23 +427,41 @@ Page({
     this.applyLayout();
     this._onResize = () => this.applyLayout();
     if (wx.onWindowResize) wx.onWindowResize(this._onResize);
+    this._kbHandler = (res) => {
+      const h = Math.max(0, Number((res && res.height) || 0));
+      if (h === this.data.keyboardHeight) return;
+      this.setData({ keyboardHeight: h, inputFocus: h > 0 || this.data.inputFocus });
+    };
+    if (typeof wx.onKeyboardHeightChange === 'function') {
+      wx.onKeyboardHeightChange(this._kbHandler);
+    }
     this.refreshAuth();
     this.refreshMasks();
     this.refreshHistory();
-    checkServiceReady().then((st) => {
-      if (!st.ok) {
-        setTimeout(() => wx.navigateBack({ fail: () => wx.reLaunch({ url: '/pages/index/index' }) }), 400);
-        return;
-      }
-      if (isLoggedIn()) {
-        this.restoreLatestSession();
-      }
-      setTimeout(() => this.setData({ entered: true }), 30);
-    });
+    // 立刻显示页面，避免白屏；不要因状态检查失败把用户踢回首页（会造成来回跳）
+    this.setData({ entered: true });
+    if (isLoggedIn()) {
+      loadHistoryFromServer()
+        .then((list) => {
+          this.setData({ historyList: list || [] });
+          if (list && list.length) {
+            try {
+              this.restoreLatestSession();
+            } catch (e) {
+              console.warn('restoreLatestSession failed', e);
+            }
+          }
+        })
+        .catch(() => {});
+    }
+    checkServiceReady({ showModal: true }).then(() => {});
   },
 
   onUnload() {
     if (this._onResize && wx.offWindowResize) wx.offWindowResize(this._onResize);
+    if (this._kbHandler && typeof wx.offKeyboardHeightChange === 'function') {
+      wx.offKeyboardHeightChange(this._kbHandler);
+    }
     this.saveCurrentSession();
     if (this._timer) clearInterval(this._timer);
   },
@@ -396,16 +470,6 @@ Page({
     this.applyLayout();
     this.refreshAuth();
     this.refreshHistory();
-    checkServiceReady({ showModal: false }).then((st) => {
-      if (!st.ok) {
-        wx.showModal({
-          title: '维护中',
-          content: st.message || '呆呆 AI 维护中，请稍后再试',
-          showCancel: false,
-          success: () => wx.navigateBack({ fail: () => wx.reLaunch({ url: '/pages/index/index' }) }),
-        });
-      }
-    });
   },
 
   onHide() {
@@ -441,12 +505,12 @@ Page({
 
   refreshHistory() {
     if (!isLoggedIn()) {
-      this.setData({ historyList: loadHistory() });
+      this.setData({ historyList: [] });
       return;
     }
     loadHistoryFromServer()
       .then((list) => {
-        this.setData({ historyList: list || loadHistory() });
+        this.setData({ historyList: list || [] });
       })
       .catch(() => {
         this.setData({ historyList: loadHistory() });
@@ -542,9 +606,26 @@ Page({
   },
 
   refreshMasks() {
-    const customMasks = loadCustomMasks();
-    const maskPreview = allMasks().slice(0, 10);
-    this.setData({ customMasks, maskPreview });
+    if (!isLoggedIn()) {
+      this.setData({
+        customMasks: [],
+        maskPreview: allMasks().slice(0, 10),
+      });
+      return;
+    }
+    refreshCustomMasksFromServer()
+      .then(() => {
+        this.setData({
+          customMasks: loadCustomMasks(),
+          maskPreview: allMasks().slice(0, 10),
+        });
+      })
+      .catch(() => {
+        this.setData({
+          customMasks: loadCustomMasks(),
+          maskPreview: allMasks().slice(0, 10),
+        });
+      });
   },
 
   onChooseAvatar() {},
@@ -621,13 +702,15 @@ Page({
       welcomeSub: '我是呆呆 AI · 聊天写作编程 · 生图改图',
       navSub: '随时帮忙',
     });
-    this.refreshHistory();
-    syncAllLocalToServer()
-      .then(() => this.refreshHistory())
-      .catch(() => {});
-    if (!this.data.messages.length) {
-      this.restoreLatestSession();
-    }
+    this.refreshMasks();
+    loadHistoryFromServer()
+      .then((list) => {
+        this.setData({ historyList: list || [] });
+        if (!this.data.messages.length && list && list.length) {
+          this.restoreLatestSession();
+        }
+      })
+      .catch(() => this.refreshHistory());
     wx.showToast({ title: '登录成功', icon: 'success' });
   },
 
@@ -635,16 +718,17 @@ Page({
     if (this.data.codeCooling || this.data.codeSending) return;
     const account = String(this.data.loginAccount || '').trim();
     if (!account) {
-      wx.showToast({ title: '请先填写手机号或QQ邮箱', icon: 'none', duration: 2500 });
+      wx.showToast({ title: '请先填写邮箱', icon: 'none', duration: 2500 });
       return;
     }
-    const isQq = /^[a-z0-9._-]{2,64}@qq\.com$/i.test(account);
-    const phone = account.replace(/\s+/g, '').replace(/^\+?86/, '');
-    const isPhone = /^1\d{10}$/.test(phone);
-    if (!isQq && !isPhone) {
+    const isAllowedEmail =
+      /^[a-z0-9._-]{1,64}@(qq\.com|gmail\.com|googlemail\.com|163\.com|126\.com|yeah\.net|vip\.163\.com|vip\.126\.com|188\.com)$/i.test(
+        account
+      );
+    if (!isAllowedEmail) {
       wx.showModal({
-        title: '账号格式不对',
-        content: '请填写中国大陆手机号（1开头11位），或 QQ 邮箱（xxx@qq.com）',
+        title: '邮箱暂不支持',
+        content: '目前支持 QQ、Gmail、网易邮箱（@qq.com / @gmail.com / @163.com 等）',
         showCancel: false,
       });
       return;
@@ -688,7 +772,7 @@ Page({
     const account = String(this.data.loginAccount || '').trim();
     const code = String(this.data.loginCode || '').trim();
     if (!account) {
-      wx.showToast({ title: '请输入 +86 手机号或 QQ 邮箱', icon: 'none' });
+      wx.showToast({ title: '请输入邮箱', icon: 'none' });
       return;
     }
     if (!code) {
@@ -707,31 +791,11 @@ Page({
       });
   },
 
-  onGetPhoneNumber(e) {
-    if (this.data.loginLoading) return;
-    const detail = (e && e.detail) || {};
-    if (!detail.code) {
-      wx.showToast({
-        title: detail.errMsg && /deny|cancel/i.test(detail.errMsg) ? '已取消授权' : '未拿到手机号授权',
-        icon: 'none',
-      });
-      return;
-    }
-    this.setData({ loginLoading: true });
-    loginWithPhoneCode(detail.code)
-      .then((user) => this._afterLoginSuccess(user))
-      .catch((err) => {
-        this.setData({ loginLoading: false });
-        wx.showToast({
-          title: (err && err.message) || '手机号登录失败',
-          icon: 'none',
-        });
-      });
-  },
-
   onLogout() {
     this.saveCurrentSession();
     clearSession();
+    clearLocalCache();
+    clearHistory();
     this.setData({
       loggedIn: false,
       user: { nickName: '游客', avatarUrl: '' },
@@ -739,10 +803,12 @@ Page({
       showLogin: false,
       messages: [],
       sessionId: '',
+      historyList: [],
+      customMasks: [],
+      maskPreview: allMasks().slice(0, 10),
       welcomeSub: '游客可逛 · 使用功能需登录',
       navSub: '游客模式',
     });
-    this.refreshHistory();
     wx.showToast({ title: '已退出，仍可浏览', icon: 'none' });
   },
 
@@ -878,7 +944,7 @@ Page({
   },
 
   onMsgTap() {
-    /* 预留：单击不弹菜单，避免和选中文字冲突 */
+    this.dismissKeyboard();
   },
 
   openMsgMenu(id, e) {
@@ -1135,6 +1201,13 @@ Page({
     this.setSkill('');
   },
 
+  /** 生图/改图成功后回到普通聊天，避免下一条又触发出图 */
+  finishVisualSkillAfterDone() {
+    if (this.data.activeSkill === 'image' || this.data.activeSkill === 'edit') {
+      this.setSkill('');
+    }
+  },
+
   applyMask(mask) {
     if (!mask) return;
     this.withService(() => {
@@ -1310,23 +1383,81 @@ Page({
     this.withService(() => {
       const text = (this.data.input || '').trim();
       if (!text || this.data.busy) return;
+      this.dismissKeyboard();
       if (this.data.editingMsgId) {
         this.sendEditMessage(text);
         return;
       }
-      if (this.data.activeSkill === 'image') {
-        this.sendImage(stripImageCue(text));
-      } else if (this.data.activeSkill === 'edit') {
+      if (this.data.activeSkill === 'edit') {
         this.sendImageEdit(text);
-      } else if (looksLikeImageRequest(text)) {
-        // 未点「生图」技能时，识别出图意图，自动走生图接口
-        this.setData({ activeSkill: 'image', imageSize: '1152x1536' }, () => {
-          this.sendImage(stripImageCue(text));
-        });
-      } else {
-        this.sendText(text);
+        return;
       }
+      // 生图技能 / 聊天里识别到出图意向 → 先确认再真正调用生图
+      if (this.data.activeSkill === 'image' || looksLikeImageRequest(text)) {
+        this.offerImageConfirm(text);
+        return;
+      }
+      this.sendText(text);
     });
+  },
+
+  offerImageConfirm(text) {
+    const prompt = stripImageCue(text);
+    if (!prompt) return;
+    const userMsg = { id: uid(), role: 'user', content: text.startsWith('🎨') ? text : text };
+    const confirmId = uid();
+    // 弹出确认时就退出生图模式，避免确认后仍卡在「生图」
+    this.setSkill('');
+    this.pushMessages(
+      [
+        userMsg,
+        {
+          id: confirmId,
+          role: 'ai',
+          content: `看起来你想生成图片：\n「${prompt.slice(0, 120)}」\n\n确认后我会开始生成。`,
+          imageConfirm: true,
+          imagePromptDraft: prompt,
+        },
+      ],
+      {
+        input: '',
+        canSend: false,
+        imageSize: this.data.imageSize || '1152x1536',
+        scrollInto: `m-${confirmId}`,
+      }
+    );
+    this.saveCurrentSession();
+  },
+
+  onConfirmImageGen(e) {
+    if (this.data.busy) return;
+    const id = e.currentTarget.dataset.id;
+    const msg = (this.data.messages || []).find((m) => String(m.id) === String(id));
+    if (!msg || !msg.imagePromptDraft) return;
+    this.dismissKeyboard();
+    const prompt = String(msg.imagePromptDraft || '').trim();
+    if (!prompt) return;
+    // 一点「生成图片」就退出生图模式，后续消息走普通聊天
+    this.setSkill('');
+    this.updateMessage(id, {
+      imageConfirm: false,
+      content: '好的，开始生成图片…',
+      loading: true,
+    });
+    this.sendImage(prompt, { skipUserBubble: true, aiId: id });
+  },
+
+  onCancelImageGen(e) {
+    const id = e.currentTarget.dataset.id;
+    this.dismissKeyboard();
+    this.setSkill('');
+    this.updateMessage(id, {
+      imageConfirm: false,
+      imagePromptDraft: '',
+      content: '已取消生成。想画的时候再说一声就行。',
+      loading: false,
+    });
+    this.saveCurrentSession();
   },
 
   sendEditMessage(text) {
@@ -1478,6 +1609,7 @@ Page({
         url: `${apiBase.replace(/\/$/, '')}/api/chat`,
         method: 'POST',
         timeout: 120000,
+        header: Object.assign({ 'content-type': 'application/json' }, authHeader()),
         data: {
           stream: false,
           messages: [
@@ -1536,25 +1668,62 @@ Page({
     }, 16);
   },
 
-  sendImage(prompt) {
+  sendImage(prompt, opts) {
+    const options = opts || {};
+    const skipUserBubble = !!options.skipUserBubble;
+    const reuseAiId = options.aiId;
+    const aiId = reuseAiId || uid();
     const userMsg = { id: uid(), role: 'user', content: `🎨 ${prompt}` };
-    const aiId = uid();
-    this.pushMessages(
-      [
-        userMsg,
-        {
-          id: aiId,
-          role: 'ai',
-          content: '呆呆 AI 正在生成图片…',
-          loading: true,
-        },
-      ],
-      {
+
+    if (reuseAiId) {
+      this.updateMessage(aiId, {
+        role: 'ai',
+        content: '呆呆 AI 正在生成图片…',
+        loading: true,
+        imageConfirm: false,
+        imagePromptDraft: '',
+        image: '',
+      });
+      this.setData({
         input: '',
         canSend: false,
         busy: true,
-      }
-    );
+        scrollInto: `m-${aiId}`,
+      });
+    } else if (skipUserBubble) {
+      this.pushMessages(
+        [
+          {
+            id: aiId,
+            role: 'ai',
+            content: '呆呆 AI 正在生成图片…',
+            loading: true,
+          },
+        ],
+        {
+          input: '',
+          canSend: false,
+          busy: true,
+        }
+      );
+    } else {
+      this.pushMessages(
+        [
+          userMsg,
+          {
+            id: aiId,
+            role: 'ai',
+            content: '呆呆 AI 正在生成图片…',
+            loading: true,
+          },
+        ],
+        {
+          input: '',
+          canSend: false,
+          busy: true,
+        }
+      );
+    }
 
     const app = getApp();
     const apiBase = (app.globalData && app.globalData.apiBase) || '';
@@ -1567,7 +1736,10 @@ Page({
           content: `呆呆 AI 已收到生图需求：「${prompt.slice(0, 40)}」\n请先配置服务后再生成真实图片。`,
           image: demoImagePath(),
         });
-        this.setData({ busy: false }, () => this.saveCurrentSession());
+        this.setData({ busy: false }, () => {
+          this.finishVisualSkillAfterDone();
+          this.saveCurrentSession();
+        });
       }, 600);
       return;
     }
@@ -1576,9 +1748,18 @@ Page({
       url: `${apiBase.replace(/\/$/, '')}/api/image`,
       method: 'POST',
       timeout: 60000,
+      header: Object.assign({ 'content-type': 'application/json' }, authHeader()),
       data: { prompt, size },
       success: (res) => {
         const data = typeof res.data === 'object' && res.data ? res.data : {};
+        if (res.statusCode === 429 || (data.error && data.error.code === 'QUOTA')) {
+          const tip =
+            (data.error && data.error.message) ||
+            '今日免费生图次数已用完（2 次）';
+          this.updateMessage(aiId, { loading: false, content: tip, image: '' });
+          this.setData({ busy: false }, () => this.saveCurrentSession());
+          return;
+        }
         if (data.image) {
           this.updateMessage(aiId, {
             loading: false,
@@ -1587,7 +1768,10 @@ Page({
             imagePrompt: prompt,
             imageKind: 'generate',
           });
-          this.setData({ busy: false }, () => this.saveCurrentSession());
+          this.setData({ busy: false }, () => {
+            this.finishVisualSkillAfterDone();
+            this.saveCurrentSession();
+          });
           return;
         }
         if (data.pending && data.jobId) {
@@ -1666,7 +1850,10 @@ Page({
               imagePrompt: prompt,
               imageKind,
             });
-            this.setData({ busy: false }, () => this.saveCurrentSession());
+            this.setData({ busy: false }, () => {
+              this.finishVisualSkillAfterDone();
+              this.saveCurrentSession();
+            });
             return;
           }
           if (data.status === 'error') {
@@ -1739,7 +1926,10 @@ Page({
           content: `呆呆 AI 已收到改图需求：「${prompt.slice(0, 40)}」\n请先配置服务后再生成真实结果。`,
           image: srcPath,
         });
-        this.setData({ busy: false, canSend: false }, () => this.saveCurrentSession());
+        this.setData({ busy: false, canSend: false }, () => {
+          this.finishVisualSkillAfterDone();
+          this.saveCurrentSession();
+        });
       }, 700);
       return;
     }
@@ -1748,6 +1938,7 @@ Page({
       url: `${apiBase.replace(/\/$/, '')}/api/image/edit`,
       method: 'POST',
       timeout: 60000,
+      header: Object.assign({ 'content-type': 'application/json' }, authHeader()),
       data: {
         prompt,
         image_b64,
@@ -1756,6 +1947,14 @@ Page({
       },
       success: (res) => {
         const data = res.data || {};
+        if (res.statusCode === 429 || (data.error && data.error.code === 'QUOTA')) {
+          const tip =
+            (data.error && data.error.message) ||
+            '今日免费改图次数已用完（与生图合计 2 次）';
+          this.updateMessage(aiId, { loading: false, content: tip, image: '' });
+          this.setData({ busy: false }, () => this.saveCurrentSession());
+          return;
+        }
         if (data.image) {
           this.updateMessage(aiId, {
             loading: false,
@@ -1764,7 +1963,10 @@ Page({
             imagePrompt: prompt,
             imageKind: 'edit',
           });
-          this.setData({ busy: false }, () => this.saveCurrentSession());
+          this.setData({ busy: false }, () => {
+            this.finishVisualSkillAfterDone();
+            this.saveCurrentSession();
+          });
           return;
         }
         if (data.pending && data.jobId) {

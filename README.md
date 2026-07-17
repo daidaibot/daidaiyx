@@ -32,24 +32,18 @@ AppID：`wxdf3dcb6c1680f134`。
 | `DAIDAI_IMAGE_KEY` | 呆呆 Image 密钥（OpenAI `sk-`） |
 | `DAIDAI_IMAGE_BASE_URL` | **`http://154.12.94.236`**（国外 VPS 中转，不要加 `/v1`） |
 | `DAIDAI_API_BASE` | `https://dai.52xv.com` |
-| `MYSQL_HOST` | MySQL 主机（云托管内网或外网地址） |
-| `MYSQL_PORT` | MySQL 端口（外网常见 `23267`，内网 `3306`） |
-| `MYSQL_USER` | 业务账号，如 `daidai_app` |
-| `MYSQL_PASSWORD` | 数据库密码 |
-| `MYSQL_DATABASE` | 库名，默认 `daidaiyx`（启动时自动建库建表） |
+| `MYSQL_ADDRESS` | 云托管 MySQL 内网地址（控制台 MySQL 页，格式 `IP:端口`） |
+| `MYSQL_USERNAME` | 云托管 MySQL 用户名 |
+| `MYSQL_PASSWORD` | 云托管 MySQL 密码 |
 | `SMTP_HOST` | 邮箱 SMTP，QQ 邮箱填 `smtp.qq.com`（可省略，默认已是这个） |
 | `SMTP_PORT` | `465` |
 | `SMTP_USER` | 你的 QQ 邮箱，如 `123456@qq.com` |
 | `SMTP_PASS` | QQ 邮箱 **授权码**（不是 QQ 密码） |
 | `SMTP_FROM` | 可选，默认 `呆呆网络 <你的QQ邮箱>` |
-| `TENCENT_SECRET_ID` / `TENCENT_SECRET_KEY` | 腾讯云 API 密钥（发短信） |
-| `SMS_SDK_APP_ID` | 短信应用 ID，如 `1400xxxxxx` |
-| `SMS_SIGN` | 短信签名，如 `呆呆网络` |
-| `SMS_TEMPLATE_ID` | 验证码模板 ID |
-| `SMS_TEMPLATE_PARAMS` | 可选，默认 `code,minutes`（模板只有一个变量时改成 `code`） |
-| `OTP_SMS_URL` | 可选，自定义短信网关 |
 
-#### QQ 邮箱验证码（推荐，免费）
+登录支持 **QQ / Gmail / 网易邮箱** 验证码（个人主体小程序不支持微信手机号快捷登录）。
+
+#### 邮箱验证码（免费，QQ SMTP 发信）
 
 1. 打开 [QQ 邮箱](https://mail.qq.com) → 设置 → 账户  
 2. 找到「POP3/IMAP/SMTP…」→ 开启 **SMTP** → 生成 **授权码**  
@@ -63,44 +57,25 @@ SMTP_PASS=你的授权码
 SMTP_FROM=呆呆网络 <你的QQ号@qq.com>
 ```
 
-用户收到的发件人会显示为「呆呆网络」。
+用户收到的发件人会显示为「呆呆网络」。可向 QQ、Gmail、163/126 等邮箱发验证码。
 
-#### 腾讯云短信（手机验证码，按条计费约几分钱）
+配置 MySQL 后，业务数据写入数据库，重部署不丢。
 
-1. 打开 [短信控制台](https://console.cloud.tencent.com/smsv2)  
-2. **国内短信** → 创建应用 → 记下 **SdkAppId**  
-3. **签名管理** → 创建签名（内容可用「呆呆网络」，选小程序/网站等资质）→ 等审核通过  
-4. **正文模板** → 创建，类型选验证码，例如：  
-   `您的验证码是{1}，{2}分钟内有效。如非本人操作请忽略。`  
-   审核通过后记下 **模板 ID**  
-5. [API 密钥](https://console.cloud.tencent.com/cam/capi) 创建 SecretId / SecretKey  
-6. 云托管环境变量：
+### 云托管 MySQL（按官方文档 / Express 模板）
+
+官方只要求这三个环境变量（见[容器内变量信息](https://developers.weixin.qq.com/miniprogram/dev/wxcloudservice/wxcloudrun/src/development/weixin/index)、[wxcloudrun-express](https://github.com/WeixinCloud/wxcloudrun-express)）：
 
 ```
-TENCENT_SECRET_ID=你的SecretId
-TENCENT_SECRET_KEY=你的SecretKey
-SMS_SDK_APP_ID=1400xxxxxx
-SMS_SIGN=呆呆网络
-SMS_TEMPLATE_ID=123456
-SMS_TEMPLATE_PARAMS=code,minutes
+MYSQL_ADDRESS=10.x.x.x:3306
+MYSQL_USERNAME=root
+MYSQL_PASSWORD=你开通时设的密码
 ```
 
-若模板只有一个变量 `{1}`，把最后一行改成 `SMS_TEMPLATE_PARAMS=code`。  
-签名/模板未过审前，手机号可先用底部「微信手机号快捷登录」。
+值在控制台 **MySQL** 页查看。模板一键部署会自动注入；手动开通或二次部署须在「服务设置」自行补全。
 
-配置 MySQL 后，**聊天记录、后台设置、后台日志、图片元数据** 会写入数据库，重部署不丢。图片文件仍在 `data/gen-images/`（挂卷或后续接 COS）。
+库名与官方 Express 模板一致，代码内写死为 `nodejs_demo`（控制台不提供库名，勿再填其它库名变量）。
 
-### MySQL 示例（外网调试）
-
-```
-MYSQL_HOST=sh-cynosdbmysql-grp-kj060ejg.sql.tencentcdb.com
-MYSQL_PORT=23267
-MYSQL_USER=daidai_app
-MYSQL_PASSWORD=你的密码
-MYSQL_DATABASE=daidaiyx
-```
-
-云托管服务与 MySQL **同环境** 时，优先用内网地址 `10.35.103.13:3306`，更稳更快。
+服务版本监听端口填 **80**。
 
 ### COS 图片持久化（推荐）
 

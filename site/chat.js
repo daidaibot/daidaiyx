@@ -550,8 +550,8 @@
             m.content || ""
           )}${m.image ? imageBlock(m.image) : ""}</div></div></div>`;
         }
-        const emoji = (findMask(state.activeMask) || {}).emoji || "呆";
-        return `<div class="row ai" data-mid="${escapeHtml(m.id)}"><div class="avatar">${emoji.length <= 2 ? emoji : "呆"}</div><div class="bubble-wrap"><div class="bubble ai" data-mid="${escapeHtml(
+        const avatar = "./assets/daidai-avatar.png";
+        return `<div class="row ai" data-mid="${escapeHtml(m.id)}"><img class="avatar" src="${avatar}" alt="呆呆 AI" /><div class="bubble-wrap"><div class="bubble ai" data-mid="${escapeHtml(
           m.id
         )}">${
           m.loading
@@ -784,7 +784,11 @@
     state.activeMask = id;
     const m = findMask(id);
     if (m) {
-      $("welcomeEmoji").textContent = m.emoji || "呆";
+      const welcome = $("welcomeEmoji");
+      if (welcome && welcome.tagName === "IMG") {
+        welcome.src = "./assets/daidai-avatar.png";
+        welcome.alt = m.name || "呆呆 AI";
+      }
       $("welcomeHi").textContent = m.name;
       $("welcomeSub").textContent = m.desc || "角色面具";
     }
@@ -916,7 +920,7 @@
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
         body: JSON.stringify({
           stream: false,
           messages: [
@@ -927,6 +931,10 @@
         }),
       });
       const data = await res.json().catch(() => ({}));
+      if (res.status === 401 || res.status === 403) {
+        typeOut(aiId, (data.error && data.error.message) || "请先登录后再聊天");
+        return;
+      }
       const content =
         data?.choices?.[0]?.message?.content ||
         (data?.error?.message ? friendlyError(data.error.message) : demoReply(text, skill, mask));
@@ -982,10 +990,20 @@
     try {
       const res = await fetch("/api/image", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
         body: JSON.stringify({ prompt, size: state.imageSize }),
       });
       const data = await res.json().catch(() => ({}));
+      if (res.status === 429 || (data.error && data.error.code === "QUOTA")) {
+        updateMsg(aiId, {
+          loading: false,
+          content: (data.error && data.error.message) || "今日免费生图次数已用完（2 次），会员不限次数",
+        });
+        state.busy = false;
+        updateChrome();
+        saveCurrentSession();
+        return;
+      }
       const jobId = data.jobId || data.job_id || data.id;
       if (data.image) {
         updateMsg(aiId, {
@@ -1061,7 +1079,7 @@
     try {
       const res = await fetch("/api/image/edit", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
         body: JSON.stringify({
           prompt,
           image_b64: state.editImage,
@@ -1069,6 +1087,16 @@
         }),
       });
       const data = await res.json().catch(() => ({}));
+      if (res.status === 429 || (data.error && data.error.code === "QUOTA")) {
+        updateMsg(aiId, {
+          loading: false,
+          content: (data.error && data.error.message) || "今日免费改图次数已用完（2 次），会员不限次数",
+        });
+        state.busy = false;
+        updateChrome();
+        saveCurrentSession();
+        return;
+      }
       if (data.image) {
         updateMsg(aiId, {
           loading: false,
@@ -1207,7 +1235,11 @@
   };
   $("maskTag").onclick = () => {
     state.activeMask = "";
-    $("welcomeEmoji").textContent = "呆";
+    const welcome = $("welcomeEmoji");
+    if (welcome && welcome.tagName === "IMG") {
+      welcome.src = "./assets/daidai-avatar.png";
+      welcome.alt = "呆呆 AI";
+    }
     $("welcomeHi").textContent = "你好，我是呆呆 AI";
     $("welcomeSub").textContent = "聊聊想法，或点下面的能力开始";
     renderMaskRow();

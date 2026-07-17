@@ -1,4 +1,4 @@
-﻿const path = require("path");
+const path = require("path");
 const fs = require("fs");
 const https = require("https");
 const express = require("express");
@@ -10,7 +10,10 @@ const authStore = require("./lib/authStore");
 const chatStore = require("./lib/chatStore");
 const cosStore = require("./lib/cosStore");
 const otp = require("./lib/otp");
-const { outboundFetch, hasOutboundProxy, maskProxy, reloadProxies, proxyCount, seedProxiesToDataDir } = require("./lib/outbound");
+const usageStore = require("./lib/usageStore");
+const maskStore = require("./lib/maskStore");
+const blobStore = require("./lib/blobStore");
+const { outboundFetch } = require("./lib/outbound");
 
 const app = express();
 const PORT = Number(process.env.PORT) || 80;
@@ -180,27 +183,54 @@ async function getWechatAccessToken() {
 
 function finishAccountLogin(res, req, user) {
   const openid = user.openid;
-  const token = authStore.makeUserToken(openid);
-  issueUserSession({
-    token,
-    openid,
-    platform: user.platform || "account",
-    nickName: user.nickName || "",
-    avatarUrl: user.avatarUrl || "",
-    ip: ops.clientIp(req),
-  });
-  // also persist phone/email via upsert already done
-  stats.login += 1;
-  ops.bumpHourly("login");
-  return res.json({
-    ok: true,
-    openid,
-    token,
-    nickName: user.nickName || "",
-    avatarUrl: user.avatarUrl || "",
-    phone: user.phone || "",
-    email: user.email || "",
-    platform: user.platform || "account",
+  if (user.isBanned) {
+    return res.status(403).json({
+      ok: false,
+      error: { message: "账号已停用，请联系管理员" },
+    });
+  }
+  return authStore.isBanned(openid).then((banned) => {
+    if (banned) {
+      return res.status(403).json({
+        ok: false,
+        error: { message: "账号已停用，请联系管理员" },
+      });
+    }
+    if (!db.isReady()) {
+      return res.status(503).json({
+        ok: false,
+        error: { message: "数据库未就绪，请稍后重试" },
+      });
+    }
+    const token = authStore.makeUserToken(openid);
+    return issueUserSession({
+      token,
+      openid,
+      platform: user.platform || "account",
+      nickName: user.nickName || "",
+      avatarUrl: user.avatarUrl || "",
+      ip: ops.clientIp(req),
+    })
+      .then(() => {
+        stats.login += 1;
+        ops.bumpHourly("login");
+        return res.json({
+          ok: true,
+          openid,
+          token,
+          nickName: user.nickName || "",
+          avatarUrl: user.avatarUrl || "",
+          phone: user.phone || "",
+          email: user.email || "",
+          platform: user.platform || "account",
+        });
+      })
+      .catch((err) =>
+        res.status(503).json({
+          ok: false,
+          error: { message: (err && err.message) || "登录失败，请稍后重试" },
+        })
+      );
   });
 }
 
@@ -295,21 +325,24 @@ function adminAuth(req, res, next) {
 }
 
 function issueUserSession({ token, openid, unionid, platform, nickName, avatarUrl, phone, email, ip }) {
-  if (!openid || !token) return;
-  authStore
+  if (!openid || !token) return Promise.resolve(null);
+  return authStore
     .upsertUser({ openid, unionid, platform, nickName, avatarUrl, phone, email })
     .then((user) =>
-      authStore.createSession({
-        token,
-        role: "user",
-        openid,
-        userId: user && user.id,
-        ip,
-        ttlMs: authStore.USER_TTL_MS,
-      })
+      authStore
+        .createSession({
+          token,
+          role: "user",
+          openid,
+          userId: user && user.id,
+          ip,
+          ttlMs: authStore.USER_TTL_MS,
+        })
+        .then(() => user)
     )
     .catch((err) => {
       console.warn("issueUserSession failed:", err && err.message);
+      throw err;
     });
 }
 
@@ -460,6 +493,85 @@ app.get("/api/admin/users", adminAuth, async (req, res) => {
   }
 });
 
+/** 后台设置会员：仅管理员，小程序端不展示会员标识 */
+app.post("/api/admin/users/member", adminAuth, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const openid = String(body.openid || "").trim();
+    const isMember = Boolean(body.isMember);
+    const user = await authStore.setMemberByOpenid(openid, isMember);
+    res.json({ ok: true, user });
+  } catch (err) {
+    const status =
+      err.code === "NOT_FOUND" ? 404 : err.code === "BAD_OPENID" ? 400 : 500;
+    res.status(status).json({ ok: false, error: { message: err.message || "设置失败" } });
+  }
+});
+
+/** 封禁 / 解封用户 */
+app.post("/api/admin/users/ban", adminAuth, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const openid = String(body.openid || "").trim();
+    const isBanned = Boolean(body.isBanned);
+    const user = await authStore.setBannedByOpenid(openid, isBanned);
+    res.json({ ok: true, user });
+  } catch (err) {
+    const status =
+      err.code === "NOT_FOUND" ? 404 : err.code === "BAD_OPENID" ? 400 : 500;
+    res.status(status).json({ ok: false, error: { message: err.message || "操作失败" } });
+  }
+});
+
+/** 用户用量统计 */
+app.get("/api/admin/users/:openid/stats", adminAuth, async (req, res) => {
+  try {
+    const openid = String(req.params.openid || "").trim();
+    const days = Number(req.query.days) || 7;
+    const statsData = await usageStore.getUserStats(openid, days);
+    res.json({ ok: true, ...statsData });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: { message: err.message || "读取失败" } });
+  }
+});
+
+/** 用户会话列表 */
+app.get("/api/admin/users/:openid/sessions", adminAuth, async (req, res) => {
+  try {
+    const openid = String(req.params.openid || "").trim();
+    const sessions = await chatStore.listSessions(openid);
+    res.json({ ok: true, sessions });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: { message: err.message || "读取失败" } });
+  }
+});
+
+/** 用户某条会话详情 */
+app.get("/api/admin/users/:openid/sessions/:sessionId", adminAuth, async (req, res) => {
+  try {
+    const openid = String(req.params.openid || "").trim();
+    const sessionId = String(req.params.sessionId || "").trim();
+    const session = await chatStore.getSession(openid, sessionId);
+    if (!session) {
+      return res.status(404).json({ ok: false, error: { message: "会话不存在" } });
+    }
+    res.json({ ok: true, session });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: { message: err.message || "读取失败" } });
+  }
+});
+
+/** 运营告警：额度用尽 / 生图失败偏多 / 对话偏高等 */
+app.get("/api/admin/alerts", adminAuth, async (_req, res) => {
+  try {
+    const data = await usageStore.buildAlerts();
+    const todayUsage = await usageStore.listTodayUsage(50);
+    res.json({ ok: true, ...data, todayUsage });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: { message: err.message || "读取失败" } });
+  }
+});
+
 app.get("/api/admin/overview", adminAuth, async (_req, res) => {
   const settings = ops.loadSettings();
   const system = ops.getSystemInfo();
@@ -504,11 +616,6 @@ app.get("/api/admin/overview", adminAuth, async (_req, res) => {
       chatModel: DEFAULT_MODEL,
       imageModel: IMAGE_MODEL,
     },
-    outboundProxy: {
-      enabled: hasOutboundProxy(),
-      masked: hasOutboundProxy() ? maskProxy() : "",
-      count: proxyCount(),
-    },
     models: {
       chat: "呆呆 AI",
       image: "呆呆 Image",
@@ -538,17 +645,17 @@ app.get("/api/admin/errors", adminAuth, async (req, res) => {
     errors,
     meta: {
       count: errors.length,
-      dataDir: ops.DATA_DIR,
+      storage: "mysql",
       tip:
         errors.length === 0
-          ? "若刚失败却仍为空：云托管请固定 1 个实例，并挂载持久盘到 /app/data"
+          ? "错误日志存于 MySQL error_logs 表"
           : "",
     },
   });
 });
 
-app.post("/api/admin/logs/clear", adminAuth, (_req, res) => {
-  ops.clearLogs();
+app.post("/api/admin/logs/clear", adminAuth, async (_req, res) => {
+  await ops.clearLogs();
   res.json({ ok: true });
 });
 
@@ -609,88 +716,6 @@ app.put("/api/admin/secrets", adminAuth, (req, res) => {
   res.json({ ok: true, ...ops.secretsStatus() });
 });
 
-app.get("/api/admin/proxies", adminAuth, (_req, res) => {
-  const file = path.join(ops.DATA_DIR, "proxies.txt");
-  const builtin = path.join(__dirname, "config", "proxies.builtin.txt");
-  let text = "";
-  let source = "";
-  try {
-    if (fs.existsSync(file) && fs.readFileSync(file, "utf8").trim()) {
-      text = fs.readFileSync(file, "utf8");
-      source = "data/proxies.txt";
-    } else if (fs.existsSync(builtin)) {
-      text = fs.readFileSync(builtin, "utf8");
-      source = "config/proxies.builtin.txt（部署内置）";
-    } else {
-      try {
-        text = String(require("./lib/proxiesBuiltin") || "");
-        if (text.trim()) source = "lib/proxiesBuiltin.js（嵌入）";
-      } catch {
-        /* ignore */
-      }
-    }
-  } catch (e) {
-    console.error("read proxies failed:", e.message);
-  }
-  res.json({
-    ok: true,
-    count: proxyCount(),
-    text,
-    file: source || "data/proxies.txt",
-    hint: "每行 host:port:user:pass（Webshare）或 http://user:pass@host:port",
-  });
-});
-
-app.put("/api/admin/proxies", adminAuth, (req, res) => {
-  const text = String((req.body && req.body.text) || "");
-  const file = path.join(ops.DATA_DIR, "proxies.txt");
-  try {
-    if (!fs.existsSync(ops.DATA_DIR)) fs.mkdirSync(ops.DATA_DIR, { recursive: true });
-    fs.writeFileSync(file, text, "utf8");
-  } catch (e) {
-    return res.status(500).json({ error: { message: e.message || "写入失败" } });
-  }
-  const count = reloadProxies();
-  res.json({ ok: true, count, file: "data/proxies.txt" });
-});
-
-/** 服务器真实出口 IP（直连，不走代理池）——给 Webshare IP 白名单用 */
-app.get("/api/admin/egress-ip", adminAuth, async (_req, res) => {
-  const sources = [
-    "https://api.ipify.org",
-    "https://ipv4.icanhazip.com",
-    "https://ifconfig.me/ip",
-  ];
-  const errors = [];
-  for (const url of sources) {
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 8000);
-      const r = await fetch(url, {
-        signal: ctrl.signal,
-        headers: { Accept: "text/plain" },
-      });
-      clearTimeout(timer);
-      const text = String(await r.text()).trim();
-      const m = text.match(/\b(\d{1,3}(?:\.\d{1,3}){3})\b/);
-      if (m) {
-        return res.json({
-          ok: true,
-          ip: m[1],
-          source: url,
-          note: "这是云托管真实出口 IP，可填进 Webshare IP Authorization（账号密码方式一般不需要）",
-        });
-      }
-      errors.push(`${url}: unexpected ${text.slice(0, 40)}`);
-    } catch (e) {
-      errors.push(`${url}: ${(e && e.message) || e}`);
-    }
-  }
-  res.status(502).json({
-    error: { message: "无法获取出口 IP", detail: errors.join(" | ") },
-  });
-});
-
 app.get("/api/admin/config", adminAuth, (_req, res) => {
   const sec = ops.secretsStatus();
   const settings = ops.loadSettings();
@@ -714,7 +739,6 @@ app.get("/api/admin/config", adminAuth, (_req, res) => {
       对话上游: CHAT_BASE_URL,
       生图上游: IMAGE_BASE_URL,
       生图模型: IMAGE_MODEL,
-      出站代理池: hasOutboundProxy() ? maskProxy() : "未配置",
       开发假登录: ALLOW_DEV_LOGIN ? "开启" : "关闭",
     },
     masked: {
@@ -735,6 +759,8 @@ app.get("/api/admin/routes", adminAuth, (_req, res) => {
       { method: "POST", path: "/api/chat", desc: "对话代理" },
       { method: "POST", path: "/api/image", desc: "生图" },
       { method: "POST", path: "/api/image/edit", desc: "改图" },
+      { method: "GET", path: "/api/admin/users", desc: "用户列表" },
+      { method: "POST", path: "/api/admin/users/member", desc: "设置会员（后台）" },
       { method: "GET", path: "/health", desc: "健康检查" },
       { method: "GET", path: "/admin/", desc: "管理后台" },
       { method: "GET", path: "/", desc: "同款网站首页" },
@@ -854,7 +880,7 @@ app.post("/api/admin/probe", adminAuth, async (req, res) => {
           model: IMAGE_MODEL,
         });
       }
-      // 用 /v1/models 真连上游（不扣生图费）；VPS 中转会直连，不再套 Webshare
+      // 用 /v1/models 真连上游（不扣生图费）
       const upstream = await outboundFetch(`${IMAGE_BASE_URL}/v1/models`, {
         method: "GET",
         headers: { Authorization: `Bearer ${imageKey}` },
@@ -971,9 +997,9 @@ function publicOrigin(req) {
   return String(ops.getPublicApiBase(ops.loadSettings()) || "").replace(/\/$/, "") || "";
 }
 
-function saveUserAvatar(openid, avatarBase64) {
+async function saveUserAvatar(openid, avatarBase64) {
   const raw = String(avatarBase64 || "").replace(/^data:image\/\w+;base64,/, "").trim();
-  if (!openid || !raw) return "";
+  if (!openid || !raw || !db.isReady()) return "";
   let buf;
   try {
     buf = Buffer.from(raw, "base64");
@@ -981,20 +1007,28 @@ function saveUserAvatar(openid, avatarBase64) {
     return "";
   }
   if (!buf.length || buf.length > 800 * 1024) return "";
-  const dir = path.join(ops.DATA_DIR, "avatars");
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   const safe = String(openid).replace(/[^\w.-]/g, "_").slice(0, 80);
-  const file = path.join(dir, `${safe}.jpg`);
-  fs.writeFileSync(file, buf);
-  return safe;
+  const id = `av_${safe}`;
+  try {
+    await blobStore.saveBlob({
+      id,
+      kind: "avatar",
+      mime: "image/jpeg",
+      data: buf,
+    });
+    return safe;
+  } catch (e) {
+    console.warn("saveUserAvatar failed:", e && e.message);
+    return "";
+  }
 }
 
 /**
- * 发送手机号 / 邮箱验证码
+ * 发送邮箱验证码
  */
 app.post("/api/auth/send-code", async (req, res) => {
   try {
-    const account = (req.body && (req.body.account || req.body.phone || req.body.email)) || "";
+    const account = (req.body && (req.body.account || req.body.email)) || "";
     const data = await otp.sendCode(account, ops.clientIp(req));
     return res.json(data);
   } catch (err) {
@@ -1003,7 +1037,7 @@ app.post("/api/auth/send-code", async (req, res) => {
         ? 429
         : err.code === "BAD_ACCOUNT"
           ? 400
-          : err.code === "NO_SMTP" || err.code === "NO_SMS"
+          : err.code === "NO_SMTP"
             ? 503
             : 500;
     return res.status(status).json({ ok: false, error: { message: err.message || "发送失败" } });
@@ -1011,12 +1045,12 @@ app.post("/api/auth/send-code", async (req, res) => {
 });
 
 /**
- * 验证码登录（未注册自动注册）
+ * 邮箱验证码登录（未注册自动注册）
  */
 app.post("/api/auth/code-login", async (req, res) => {
   try {
     const body = req.body || {};
-    const user = await otp.loginWithCode(body.account || body.phone || body.email, body.code);
+    const user = await otp.loginWithCode(body.account || body.email, body.code);
     return finishAccountLogin(res, req, user);
   } catch (err) {
     const status = err.code === "BAD_ACCOUNT" || err.code === "BAD_CODE" ? 401 : 500;
@@ -1025,13 +1059,13 @@ app.post("/api/auth/code-login", async (req, res) => {
 });
 
 /**
- * 手机号 / 邮箱 + 密码：注册
+ * 邮箱 + 密码：注册
  */
 app.post("/api/auth/register", async (req, res) => {
   try {
     const body = req.body || {};
     const user = await authStore.registerAccount({
-      account: body.account || body.phone || body.email,
+      account: body.account || body.email,
       password: body.password,
       nickName: body.nickName,
     });
@@ -1043,13 +1077,13 @@ app.post("/api/auth/register", async (req, res) => {
 });
 
 /**
- * 手机号 / 邮箱 + 密码：登录
+ * 邮箱 + 密码：登录
  */
 app.post("/api/auth/account-login", async (req, res) => {
   try {
     const body = req.body || {};
     const user = await authStore.loginAccount({
-      account: body.account || body.phone || body.email,
+      account: body.account || body.email,
       password: body.password,
     });
     return finishAccountLogin(res, req, user);
@@ -1059,45 +1093,12 @@ app.post("/api/auth/account-login", async (req, res) => {
   }
 });
 
-/**
- * 微信手机号快捷登录：button open-type=getPhoneNumber 的 code
- */
-app.post("/api/auth/phone-login", async (req, res) => {
-  try {
-    const code = String((req.body && req.body.code) || "").trim();
-    if (!code) {
-      return res.status(400).json({ ok: false, error: { message: "缺少手机号授权凭证" } });
-    }
-    if (!WECHAT_APPID || !WECHAT_SECRET) {
-      return res.status(503).json({
-        ok: false,
-        error: { message: "未配置微信小程序（无法一键取手机号）" },
-      });
-    }
-    const accessToken = await getWechatAccessToken();
-    const result = await weixinHttpsPostJson(
-      `https://api.weixin.qq.com/wxa/business/getuserphonenumber?access_token=${encodeURIComponent(accessToken)}`,
-      { code }
-    );
-    const data = result.data || {};
-    const phone =
-      (data.phone_info && (data.phone_info.purePhoneNumber || data.phone_info.phoneNumber)) || "";
-    if (!phone) {
-      console.error("getuserphonenumber failed:", data);
-      return res.status(401).json({
-        ok: false,
-        error: { message: data.errmsg || "获取手机号失败，请改用账号密码登录" },
-      });
-    }
-    const user = await authStore.loginOrRegisterPhone(phone, req.body && req.body.nickName);
-    return finishAccountLogin(res, req, user);
-  } catch (err) {
-    console.error("phone-login error:", err);
-    return res.status(502).json({
-      ok: false,
-      error: { message: err.message || "手机号登录失败" },
-    });
-  }
+/** 个人主体不可用：已停用微信手机号登录 */
+app.post("/api/auth/phone-login", (_req, res) => {
+  return res.status(410).json({
+    ok: false,
+    error: { message: "已停用手机号登录，请使用邮箱验证码登录" },
+  });
 });
 
 /**
@@ -1127,15 +1128,21 @@ app.post("/api/auth/login", async (req, res) => {
         });
       }
       const openid = `dev_${hashCode(code)}`;
+      if (await authStore.isBanned(openid)) {
+        return res.status(403).json({
+          ok: false,
+          error: { message: "账号已停用，请联系管理员" },
+        });
+      }
       const token = `dev_${openid}`;
-      const saved = saveUserAvatar(openid, avatarBase64);
+      const saved = await saveUserAvatar(openid, avatarBase64);
       if (saved) {
         const origin = publicOrigin(req);
         avatarUrl = origin ? `${origin}/api/avatar/${saved}` : `/api/avatar/${saved}`;
       }
       stats.login += 1;
       ops.bumpHourly("login");
-      issueUserSession({
+      await issueUserSession({
         token,
         openid,
         platform: "dev",
@@ -1208,15 +1215,21 @@ app.post("/api/auth/login", async (req, res) => {
         },
       });
     }
-    const saved = saveUserAvatar(data.openid, avatarBase64);
+    const saved = await saveUserAvatar(data.openid, avatarBase64);
     if (saved) {
       const origin = publicOrigin(req);
       avatarUrl = origin ? `${origin}/api/avatar/${saved}` : `/api/avatar/${saved}`;
     }
+    if (await authStore.isBanned(data.openid)) {
+      return res.status(403).json({
+        ok: false,
+        error: { message: "账号已停用，请联系管理员" },
+      });
+    }
     stats.login += 1;
     ops.bumpHourly("login");
     const token = `wx_${data.openid}_${hashCode(data.session_key || code)}`;
-    issueUserSession({
+    await issueUserSession({
       token,
       openid: data.openid,
       unionid: data.unionid || "",
@@ -1243,21 +1256,27 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-app.get("/api/avatar/:id", (req, res) => {
+app.get("/api/avatar/:id", async (req, res) => {
   const id = String(req.params.id || "").replace(/[^\w.-]/g, "").slice(0, 80);
   if (!id) return res.status(404).end();
-  const file = path.join(ops.DATA_DIR, "avatars", `${id}.jpg`);
-  if (!fs.existsSync(file)) return res.status(404).json({ ok: false, error: { message: "头像不存在" } });
-  res.setHeader("Cache-Control", "public, max-age=86400");
-  res.type("jpg");
-  return res.sendFile(file);
+  try {
+    const hit = await blobStore.getBlob(`av_${id}`);
+    if (!hit || !hit.data || !hit.data.length) {
+      return res.status(404).json({ ok: false, error: { message: "头像不存在" } });
+    }
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.type(hit.mime || "image/jpeg");
+    return res.send(hit.data);
+  } catch (e) {
+    return res.status(503).json({ ok: false, error: { message: "数据库未就绪" } });
+  }
 });
 
 /**
  * 网页端仅本人使用：密码通行（默认与 ADMIN_PASSWORD 相同）
  * 普通用户请走小程序微信登录
  */
-app.post("/api/auth/web-login", (req, res) => {
+app.post("/api/auth/web-login", async (req, res) => {
   if (!WEB_PASSWORD) {
     return res.status(503).json({
       ok: false,
@@ -1268,18 +1287,31 @@ app.post("/api/auth/web-login", (req, res) => {
   if (!password || password !== WEB_PASSWORD) {
     return res.status(401).json({ ok: false, error: { message: "密码错误" } });
   }
+  if (!db.isReady()) {
+    return res.status(503).json({
+      ok: false,
+      error: { message: "数据库未就绪，请稍后重试" },
+    });
+  }
   const openid = "web_owner";
   const token = `web_${openid}_${hashCode(password + Date.now())}`;
+  try {
+    await issueUserSession({
+      token,
+      openid,
+      platform: "web",
+      nickName: "站长",
+      avatarUrl: "",
+      ip: ops.clientIp(req),
+    });
+  } catch (err) {
+    return res.status(503).json({
+      ok: false,
+      error: { message: (err && err.message) || "登录失败" },
+    });
+  }
   stats.login += 1;
   ops.bumpHourly("login");
-  issueUserSession({
-    token,
-    openid,
-    platform: "web",
-    nickName: "站长",
-    avatarUrl: "",
-    ip: ops.clientIp(req),
-  });
   return res.json({
     ok: true,
     openid,
@@ -1360,6 +1392,43 @@ app.post("/api/chat/sync", authStore.userAuthRequired, async (req, res) => {
   res.json({ ok: true, sessions });
 });
 
+/** 自定义面具：列表 / 保存 / 删除（仅数据库） */
+app.get("/api/masks", authStore.userAuthRequired, async (req, res) => {
+  try {
+    const masks = await maskStore.listMasks(req.user.openid);
+    res.json({ ok: true, masks });
+  } catch (err) {
+    res.status(503).json({ ok: false, error: { message: (err && err.message) || "数据库未就绪" } });
+  }
+});
+
+app.put("/api/masks/:id", authStore.userAuthRequired, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const masks = await maskStore.saveMask(req.user.openid, {
+      id: req.params.id,
+      name: body.name,
+      emoji: body.emoji,
+      desc: body.desc,
+      prompt: body.prompt,
+      hello: body.hello,
+    });
+    res.json({ ok: true, masks });
+  } catch (err) {
+    const status = err.code === "BAD" ? 400 : 503;
+    res.status(status).json({ ok: false, error: { message: (err && err.message) || "保存失败" } });
+  }
+});
+
+app.delete("/api/masks/:id", authStore.userAuthRequired, async (req, res) => {
+  try {
+    const masks = await maskStore.removeMask(req.user.openid, req.params.id);
+    res.json({ ok: true, masks });
+  } catch (err) {
+    res.status(503).json({ ok: false, error: { message: (err && err.message) || "删除失败" } });
+  }
+});
+
 app.get("/health", (_req, res) => {
   res.json({
     ok: true,
@@ -1370,6 +1439,7 @@ app.get("/health", (_req, res) => {
     wechatLoginConfigured: Boolean(WECHAT_APPID && WECHAT_SECRET),
     dbReady: db.isReady(),
     dbConfigured: db.isConfigured(),
+    dbConfigSource: db.getConfigSource ? db.getConfigSource() : "",
     dbError: db.getInitError(),
     cosConfigured: cosStore.isConfigured(),
   });
@@ -1385,7 +1455,7 @@ app.get("/api/chat/health", (_req, res) => {
   res.json({ ok: true, product: "呆呆 AI" });
 });
 
-app.post("/api/chat", gateProductApi("chat"), async (req, res) => {
+app.post("/api/chat", authStore.userAuthRequired, gateProductApi("chat"), async (req, res) => {
   const chatKey = ops.getChatKey();
   if (!chatKey) {
     return res.status(503).json({
@@ -1394,6 +1464,7 @@ app.post("/api/chat", gateProductApi("chat"), async (req, res) => {
   }
 
   const body = req.body || {};
+  const openid = (req.user && req.user.openid) || "";
   const payload = {
     model: DEFAULT_MODEL,
     messages: body.messages || [],
@@ -1428,6 +1499,7 @@ app.post("/api/chat", gateProductApi("chat"), async (req, res) => {
         if (errText) message = errText.slice(0, 300);
       }
       stats.chatFail += 1;
+      if (openid) usageStore.recordChat(openid, false).catch(() => {});
       const publicMsg = sanitizePublicError(message, `呆呆 AI 暂时繁忙（${upstream.status}）`);
       logApiError(
         {
@@ -1446,6 +1518,7 @@ app.post("/api/chat", gateProductApi("chat"), async (req, res) => {
     stats.chat += 1;
     ops.bumpHourly("chat");
     ops.pushLatency("chat", Date.now() - started);
+    if (openid) usageStore.recordChat(openid, true).catch(() => {});
 
     if (payload.stream) {
       res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
@@ -1473,6 +1546,7 @@ app.post("/api/chat", gateProductApi("chat"), async (req, res) => {
   } catch (err) {
     console.error("chat proxy error:", err);
     stats.chatFail += 1;
+    if (openid) usageStore.recordChat(openid, false).catch(() => {});
     const message = err instanceof Error ? err.message : String(err);
     logApiError(
       {
@@ -1630,7 +1704,8 @@ async function generateImageOnce({ imageKey, prompt, size, origin }) {
   };
 }
 
-app.post("/api/image", gateProductApi("image"), async (req, res) => {
+app.post("/api/image", authStore.userAuthRequired, gateProductApi("image"), async (req, res) => {
+  const openid = (req.user && req.user.openid) || "";
   const imageKey = ops.getImageKey();
   if (!imageKey) {
     const hint = imageConfigHint();
@@ -1669,13 +1744,38 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
     return res.status(400).json({ error: errorPayload("prompt 不能为空", res) });
   }
 
+  let quota;
+  try {
+    quota = await usageStore.tryConsumeImageQuota(openid);
+  } catch (err) {
+    if (err.code === "QUOTA") {
+      return res.status(429).json({
+        ok: false,
+        error: {
+          message: err.message,
+          code: "QUOTA",
+          used: err.used,
+          limit: err.limit,
+        },
+      });
+    }
+    return res.status(401).json({ ok: false, error: { message: err.message || "请先登录" } });
+  }
+
   const size = body.size || "1152x1536";
   const origin = imageOut.publicOrigin(req, ops.loadSettings());
-  // 默认异步：立刻返回 jobId，避免云托管/网关 60s 左右 504（上游其实还在画并扣费）
   const wantSync = body.sync === true || body.sync === 1 || body.sync === "1";
 
   if (!wantSync) {
-    const job = imageJobs.createJob({ prompt: prompt.slice(0, 200), size });
+    let job;
+    try {
+      job = await imageJobs.createJob({ prompt: prompt.slice(0, 200), size, openid });
+    } catch (err) {
+      return res.status(503).json({
+        ok: false,
+        error: { message: (err && err.message) || "数据库未就绪" },
+      });
+    }
     res.json({
       ok: true,
       pending: true,
@@ -1684,6 +1784,7 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
       id: job.id,
       product: "呆呆 Image",
       message: "生图任务已提交，请轮询 /api/image/job/:id",
+      quota,
     });
     setImmediate(async () => {
       try {
@@ -1691,7 +1792,8 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
         stats.image += 1;
         ops.bumpHourly("image");
         ops.pushLatency("image", result.ms);
-        imageJobs.updateJob(job.id, {
+        usageStore.recordImage(openid, "generate", true).catch(() => {});
+        await imageJobs.updateJob(job.id, {
           status: "done",
           image: result.image,
           imageId: result.imageId,
@@ -1701,6 +1803,7 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
         console.log(`[image-ok] job=${job.id} id=${result.imageId} bytes=${result.bytes} ms=${result.ms}`);
       } catch (err) {
         stats.imageFail += 1;
+        usageStore.recordImage(openid, "generate", false).catch(() => {});
         const message = err instanceof Error ? err.message : String(err);
         const status = err && err.status ? err.status : 502;
         logApiError({
@@ -1708,10 +1811,10 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
           message,
           status,
           path: "/api/image",
-          detail: `job=${job.id} model=${IMAGE_MODEL} base=${IMAGE_BASE_URL} prompt=${prompt.slice(0, 80)}`,
+          detail: `job=${job.id} openid=${openid} model=${IMAGE_MODEL} base=${IMAGE_BASE_URL} prompt=${prompt.slice(0, 80)}`,
           ip: ops.clientIp(req),
         });
-        imageJobs.updateJob(job.id, {
+        await imageJobs.updateJob(job.id, {
           status: "error",
           error: sanitizePublicError(
             message,
@@ -1732,6 +1835,7 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
     stats.image += 1;
     ops.bumpHourly("image");
     ops.pushLatency("image", result.ms);
+    usageStore.recordImage(openid, "generate", true).catch(() => {});
     res.json({
       ok: true,
       product: "呆呆 Image",
@@ -1739,10 +1843,12 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
       image: result.image,
       imageId: result.imageId,
       revised_prompt: result.revised_prompt || "",
+      quota,
     });
   } catch (err) {
     console.error("image proxy error:", err);
     stats.imageFail += 1;
+    usageStore.recordImage(openid, "generate", false).catch(() => {});
     const message = err instanceof Error ? err.message : String(err);
     const status = err && err.status ? err.status : 502;
     logApiError(
@@ -1751,7 +1857,7 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
         message,
         status,
         path: "/api/image",
-        detail: `model=${IMAGE_MODEL} base=${IMAGE_BASE_URL}`,
+        detail: `openid=${openid} model=${IMAGE_MODEL} base=${IMAGE_BASE_URL}`,
         ip: ops.clientIp(req),
       },
       res
@@ -1762,7 +1868,7 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
           message,
           status === 504
             ? "生图超时：上游或网关等待过久，上游可能已扣费"
-            : "生图失败，请检查代理池、上游与密钥"
+            : "生图失败，请检查上游与密钥"
         ),
         res,
         { base: IMAGE_BASE_URL, model: IMAGE_MODEL }
@@ -1771,12 +1877,16 @@ app.post("/api/image", gateProductApi("image"), async (req, res) => {
   }
 });
 
-app.get("/api/image/job/:id", (req, res) => {
-  const job = imageJobs.getJob(req.params.id);
-  if (!job) {
-    return res.status(404).json({ ok: false, error: { message: "任务不存在或已过期" } });
+app.get("/api/image/job/:id", async (req, res) => {
+  try {
+    const job = await imageJobs.getJob(req.params.id);
+    if (!job) {
+      return res.status(404).json({ ok: false, error: { message: "任务不存在或已过期" } });
+    }
+    res.json({ ok: true, job: imageJobs.publicJob(job) });
+  } catch (err) {
+    res.status(503).json({ ok: false, error: { message: (err && err.message) || "数据库未就绪" } });
   }
-  res.json({ ok: true, job: imageJobs.publicJob(job) });
 });
 
 /**
@@ -1864,7 +1974,8 @@ async function runImageEditOnce({ imageKey, prompt, imageB64, mime, size, origin
  * AI 改图：默认异步 job（避免云托管网关 504），与生图一致可轮询 /api/image/job/:id
  * body: { prompt, image_b64, mime?, size?, sync? }
  */
-app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
+app.post("/api/image/edit", authStore.userAuthRequired, gateProductApi("imageEdit"), async (req, res) => {
+  const openid = (req.user && req.user.openid) || "";
   const imageKey = ops.getImageKey();
   if (!imageKey) {
     const hint = imageConfigHint();
@@ -1891,29 +2002,9 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
   const prompt = String(body.prompt || "").trim();
   let imageB64 = String(body.image_b64 || body.image || "").trim();
   if (!prompt) {
-    logApiError(
-      {
-        source: "imageEdit",
-        message: "prompt 为空",
-        status: 400,
-        path: "/api/image/edit",
-        ip: ops.clientIp(req),
-      },
-      res
-    );
     return res.status(400).json({ error: { message: "prompt 不能为空" } });
   }
   if (!imageB64) {
-    logApiError(
-      {
-        source: "imageEdit",
-        message: "未上传原图",
-        status: 400,
-        path: "/api/image/edit",
-        ip: ops.clientIp(req),
-      },
-      res
-    );
     return res.status(400).json({ error: { message: "请上传要修改的图片" } });
   }
 
@@ -1923,15 +2014,45 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
     mime = dataUrl[1];
     imageB64 = dataUrl[2];
   }
-  // 去掉可能的空白换行
   imageB64 = imageB64.replace(/\s+/g, "");
+
+  let quota;
+  try {
+    quota = await usageStore.tryConsumeImageQuota(openid);
+  } catch (err) {
+    if (err.code === "QUOTA") {
+      return res.status(429).json({
+        ok: false,
+        error: {
+          message: err.message,
+          code: "QUOTA",
+          used: err.used,
+          limit: err.limit,
+        },
+      });
+    }
+    return res.status(401).json({ ok: false, error: { message: err.message || "请先登录" } });
+  }
 
   const size = body.size || "1152x1536";
   const origin = imageOut.publicOrigin(req, ops.loadSettings());
   const wantSync = body.sync === true || body.sync === 1 || body.sync === "1";
 
   if (!wantSync) {
-    const job = imageJobs.createJob({ prompt: prompt.slice(0, 200), size, kind: "edit" });
+    let job;
+    try {
+      job = await imageJobs.createJob({
+        prompt: prompt.slice(0, 200),
+        size,
+        kind: "edit",
+        openid,
+      });
+    } catch (err) {
+      return res.status(503).json({
+        ok: false,
+        error: { message: (err && err.message) || "数据库未就绪" },
+      });
+    }
     res.json({
       ok: true,
       pending: true,
@@ -1940,6 +2061,7 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
       id: job.id,
       product: "呆呆 Image",
       message: "改图任务已提交，请轮询 /api/image/job/:id",
+      quota,
     });
     setImmediate(async () => {
       try {
@@ -1954,7 +2076,8 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
         stats.imageEdit += 1;
         ops.bumpHourly("imageEdit");
         ops.pushLatency("imageEdit", result.ms);
-        imageJobs.updateJob(job.id, {
+        usageStore.recordImage(openid, "edit", true).catch(() => {});
+        await imageJobs.updateJob(job.id, {
           status: "done",
           image: result.image,
           imageId: result.imageId,
@@ -1964,6 +2087,7 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
         console.log(`[image-edit-ok] job=${job.id} id=${result.imageId} ms=${result.ms}`);
       } catch (err) {
         stats.imageEditFail += 1;
+        usageStore.recordImage(openid, "edit", false).catch(() => {});
         const message = err instanceof Error ? err.message : String(err);
         const status = err && err.status ? err.status : 502;
         logApiError({
@@ -1971,10 +2095,10 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
           message,
           status,
           path: "/api/image/edit",
-          detail: `job=${job.id} model=${IMAGE_MODEL} base=${IMAGE_BASE_URL} prompt=${prompt.slice(0, 80)}`,
+          detail: `job=${job.id} openid=${openid} model=${IMAGE_MODEL} prompt=${prompt.slice(0, 80)}`,
           ip: ops.clientIp(req),
         });
-        imageJobs.updateJob(job.id, {
+        await imageJobs.updateJob(job.id, {
           status: "error",
           error: sanitizePublicError(message, "改图失败"),
           ms: Date.now() - job.createdAt,
@@ -1997,6 +2121,7 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
     stats.imageEdit += 1;
     ops.bumpHourly("imageEdit");
     ops.pushLatency("imageEdit", result.ms);
+    usageStore.recordImage(openid, "edit", true).catch(() => {});
     res.json({
       ok: true,
       product: "呆呆 Image",
@@ -2004,10 +2129,12 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
       image: result.image,
       imageId: result.imageId,
       revised_prompt: result.revised_prompt || "",
+      quota,
     });
   } catch (err) {
     console.error("image edit proxy error:", err);
     stats.imageEditFail += 1;
+    usageStore.recordImage(openid, "edit", false).catch(() => {});
     const message = err instanceof Error ? err.message : String(err);
     const status = err && err.status ? err.status : 502;
     logApiError(
@@ -2016,28 +2143,23 @@ app.post("/api/image/edit", gateProductApi("imageEdit"), async (req, res) => {
         message,
         status,
         path: "/api/image/edit",
-        detail: `model=${IMAGE_MODEL} base=${IMAGE_BASE_URL}`,
+        detail: `openid=${openid} model=${IMAGE_MODEL}`,
         ip: ops.clientIp(req),
       },
       res
     );
     res.status(status >= 400 && status < 600 ? status : 502).json({
-      error: {
-        message: sanitizePublicError(message, "改图失败，请检查上游与密钥"),
-      },
+      error: { message: sanitizePublicError(message, "改图失败") },
     });
   }
 });
 
 app.get("/api/image/file/:id", async (req, res) => {
-  let file = imageOut.resolveImageFile(req.params.id);
-  if (!file) {
-    file = await imageOut.resolveImageFileAsync(req.params.id);
-  }
-  if (!file) {
+  const safe = String(req.params.id || "").replace(/[^a-zA-Z0-9_-]/g, "") || "daidai";
+  const hit = await imageOut.resolveImageBuffer(safe);
+  if (!hit || !hit.buffer || !hit.buffer.length) {
     return res.status(404).json({ error: { message: "图片不存在或已过期" } });
   }
-  const safe = String(req.params.id || "").replace(/[^a-zA-Z0-9_-]/g, "") || "daidai";
   res.setHeader("Cache-Control", "public, max-age=86400");
   res.setHeader("Access-Control-Allow-Origin", "*");
   if (req.query.download === "1" || req.query.download === "true") {
@@ -2046,8 +2168,8 @@ app.get("/api/image/file/:id", async (req, res) => {
       `attachment; filename="daidai-ai-${safe}.jpg"; filename*=UTF-8''daidai-ai-${safe}.jpg`
     );
   }
-  res.type("image/jpeg");
-  fs.createReadStream(file).pipe(res);
+  res.type(hit.mime || "image/jpeg");
+  res.send(hit.buffer);
 });
 
 const adminDir = path.join(__dirname, "admin");
@@ -2075,7 +2197,6 @@ app.get("*", (req, res, next) => {
 });
 
 app.listen(PORT, "0.0.0.0", async () => {
-  const seeded = seedProxiesToDataDir();
   if (db.isConfigured()) {
     const ok = await db.init();
     if (ok) {
@@ -2083,13 +2204,15 @@ app.listen(PORT, "0.0.0.0", async () => {
       await ops.hydrateSecretsFromDb();
     }
   } else {
-    console.warn("[db] MYSQL_HOST 未配置，聊天记录/后台记录仅落本地文件");
+    console.warn(
+      "[db] MySQL 未配置：请按官方要求在服务设置填写 MYSQL_ADDRESS、MYSQL_USERNAME、MYSQL_PASSWORD"
+    );
   }
   console.log(
-    `呆呆网络 listening on ${PORT}, chatConfigured=${Boolean(ops.getChatKey())}, imageBase=${IMAGE_BASE_URL}, dbReady=${db.isReady()}, outboundProxy=${
-      hasOutboundProxy() ? maskProxy() : "off"
-    }, proxyNodes=${seeded || proxyCount()}, sharp=${imageOut.hasSharp()}, cos=${cosStore.isConfigured()}, site=/, admin=/admin/`
+    `呆呆网络 listening on ${PORT}, chatConfigured=${Boolean(ops.getChatKey())}, imageBase=${IMAGE_BASE_URL}, dbReady=${db.isReady()}, sharp=${imageOut.hasSharp()}, cos=${cosStore.isConfigured()}, storage=mysql, site=/, admin=/admin/`
   );
-  imageOut.cleanupOldImages();
-  setInterval(() => imageOut.cleanupOldImages(), 6 * 3600 * 1000).unref?.();
+  imageOut.cleanupOldImages().catch(() => {});
+  setInterval(() => {
+    imageOut.cleanupOldImages().catch(() => {});
+  }, 6 * 3600 * 1000).unref?.();
 });

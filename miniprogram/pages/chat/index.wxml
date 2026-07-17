@@ -1,6 +1,6 @@
 <view class="page {{entered ? 'entered' : ''}} {{isWide ? 'is-wide' : ''}} {{isPc ? 'is-pc' : ''}}">
-  <view class="nav" style="padding-top: {{statusBarHeight}}px;">
-    <view class="nav-inner">
+  <view class="nav" style="padding-top: {{statusBarHeight}}px;" bindtap="dismissKeyboard">
+    <view class="nav-inner" catchtap="noop">
       <view class="menu-btn" bindtap="openDrawer">
         <view class="menu-line"></view>
         <view class="menu-line"></view>
@@ -21,10 +21,11 @@
     scroll-into-view="{{scrollInto}}"
     enhanced
     show-scrollbar="{{false}}"
+    bindtap="dismissKeyboard"
   >
     <view class="msgs-pad">
       <view wx:if="{{messages.length === 0}}" class="welcome">
-        <view class="welcome-avatar">{{welcomeEmoji}}</view>
+        <image class="welcome-avatar" src="/assets/daidai-avatar.png" mode="aspectFill" />
         <view class="welcome-hi">{{welcomeHi}}</view>
         <view class="welcome-sub">{{welcomeSub}}</view>
         <view wx:if="{{!loggedIn}}" class="guest-tip" bindtap="openLogin">
@@ -74,7 +75,12 @@
 
       <block wx:for="{{messages}}" wx:key="id">
         <view class="row {{item.role === 'user' ? 'mine' : 'ai'}}" id="m-{{item.id}}">
-          <view wx:if="{{item.role !== 'user'}}" class="avatar">{{welcomeEmoji}}</view>
+          <image
+            wx:if="{{item.role !== 'user'}}"
+            class="avatar"
+            src="/assets/daidai-avatar.png"
+            mode="aspectFill"
+          />
           <view class="bubble-wrap">
             <view
               class="bubble {{item.role}}"
@@ -87,6 +93,18 @@
                 <text class="quote-chip-text">{{item.quote.preview}}</text>
               </view>
               <text wx:if="{{item.content}}" class="bubble-text" user-select>{{item.content}}</text>
+              <view wx:if="{{item.imageConfirm}}" class="bubble-actions" catchtap="noop">
+                <view
+                  class="action-btn primary"
+                  data-id="{{item.id}}"
+                  catchtap="onConfirmImageGen"
+                >生成图片</view>
+                <view
+                  class="action-btn"
+                  data-id="{{item.id}}"
+                  catchtap="onCancelImageGen"
+                >取消</view>
+              </view>
               <image
                 wx:if="{{item.image}}"
                 class="bubble-img"
@@ -120,7 +138,10 @@
     >{{item.label}}</view>
   </view>
 
-  <view class="composer {{activeSkill === 'edit' ? 'edit-mode' : ''}}">
+  <view
+    class="composer {{activeSkill === 'edit' ? 'edit-mode' : ''}}"
+    catchtap="noop"
+  >
     <view class="quote-bar" wx:if="{{quoteMsg}}">
       <view class="quote-bar-main">
         <text class="quote-bar-label">{{quoteMode === 'reply' ? '回复' : '引用'}}</text>
@@ -143,7 +164,7 @@
         <text class="skill-x">×</text>
       </view>
     </view>
-    <view class="composer-box">
+    <view class="composer-box {{inputFocus ? 'focus' : ''}}">
       <view class="plus-wrap">
         <view
           wx:if="{{activeSkill === 'edit'}}"
@@ -170,15 +191,23 @@
         >换图</view>
         <view wx:else class="plus" bindtap="onPlus">＋</view>
       </view>
-      <input
+      <textarea
         class="input"
         value="{{input}}"
         placeholder="{{placeholder}}"
+        placeholder-class="input-ph"
         confirm-type="send"
-        adjust-position
-        hold-keyboard
+        confirm-hold="{{false}}"
+        adjust-position="{{true}}"
+        cursor-spacing="28"
+        auto-height
+        maxlength="2000"
+        show-confirm-bar="{{false}}"
+        disable-default-padding
         bindinput="onInput"
         bindconfirm="onSend"
+        bindfocus="onInputFocus"
+        bindblur="onInputBlur"
         disabled="{{busy}}"
       />
       <view class="send {{canSend ? 'on' : ''}}" bindtap="onSend">
@@ -303,12 +332,12 @@
   <view class="drawer {{showDrawer ? 'show' : ''}}" style="padding-top: {{statusBarHeight}}px;">
     <view class="drawer-user">
       <image
-        wx:if="{{loggedIn && user.avatarUrl}}"
+        wx:if="{{loggedIn}}"
         class="drawer-avatar"
-        src="{{user.avatarUrl}}"
+        src="{{user.avatarUrl || '/assets/daidai-avatar.png'}}"
         mode="aspectFill"
       />
-      <view wx:else class="drawer-avatar ph">{{loggedIn ? '呆' : '游'}}</view>
+      <view wx:else class="drawer-avatar ph">游</view>
       <view class="drawer-user-meta">
         <view class="drawer-name">{{loggedIn ? user.nickName : '游客'}}</view>
         <view class="drawer-tip">{{loggedIn ? '已登录 · 呆呆 AI' : '游客模式 · 使用需登录'}}</view>
@@ -349,13 +378,13 @@
     <view class="login-handle"></view>
     <view class="login-brand">呆呆网络</view>
     <view class="login-sheet-title">登录</view>
-    <view class="login-sheet-desc">仅支持 +86 手机号或 QQ 邮箱验证码登录</view>
+    <view class="login-sheet-desc">使用 QQ / Gmail / 网易邮箱接收验证码登录</view>
 
     <view class="login-fields">
       <input
         class="nick-input"
         type="text"
-        placeholder="+86 手机号 或 QQ邮箱"
+        placeholder="QQ / Gmail / 网易邮箱"
         value="{{loginAccount}}"
         bindinput="onAccountInput"
       />
@@ -381,16 +410,6 @@
       hover-class="login-btn-hover"
       bindtap="onCodeLogin"
     >登录</button>
-
-    <view class="login-or"><text class="login-or-line"></text><text class="login-or-text">或</text><text class="login-or-line"></text></view>
-
-    <button
-      class="login-btn login-btn-secondary login-btn-sm"
-      open-type="getPhoneNumber"
-      bindgetphonenumber="onGetPhoneNumber"
-      loading="{{loginLoading}}"
-      hover-class="login-btn-hover"
-    >微信手机号快捷登录</button>
 
     <view class="login-cancel" bindtap="closeLogin">稍后再说</view>
   </view>

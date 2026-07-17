@@ -19,6 +19,14 @@
   DAIDAI_IMAGE_KEY=sk-你的OpenAI密钥
   DAIDAI_API_BASE=https://dai.52xv.com
 
+MySQL（官方仅此三项，见云托管「容器内变量信息」）：
+
+  MYSQL_ADDRESS=10.x.x.x:3306
+  MYSQL_USERNAME=root
+  MYSQL_PASSWORD=开通时的密码
+
+服务版本监听端口：80（与 Dockerfile 一致）
+
 不要给 BASE_URL 加 /v1。Node 会自己拼：
   POST {DAIDAI_IMAGE_BASE_URL}/v1/images/generations
 
@@ -54,7 +62,7 @@ miniprogram/app.js → apiBase 已写死为 https://dai.52xv.com。
 | 方案              | 状态     |
 |-------------------|----------|
 | VPS 中转（推荐）  | 当前用这个 |
-| Webshare 代理池   | 云托管出网超时，暂废 |
+| Webshare 代理池   | 已删除，不再使用 |
 | Cloudflare 免费   | 长生图易 504 |
 | 直连 api.openai.com | 国内常不通 |
 

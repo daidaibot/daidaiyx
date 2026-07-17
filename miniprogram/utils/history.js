@@ -1,60 +1,31 @@
-const INDEX_KEY = 'daidai_chat_index';
+/**
+ * 聊天历史：以服务端数据库为准；本地仅内存缓存当前列表，不写 wx.storage
+ */
+const historySync = require("./historySync");
+const auth = require("./auth");
+
 const MAX_SESSIONS = 40;
 const MAX_MESSAGES = 120;
-const historySync = require('./historySync');
 
-function storageKey(openid) {
-  return openid ? `${INDEX_KEY}_${openid}` : INDEX_KEY;
-}
-
-function sessionKey(openid, id) {
-  return openid ? `daidai_sess_${openid}_${id}` : `daidai_sess_${id}`;
-}
+/** @type {Array<{id:string,title:string,preview:string,updatedAt:number}>} */
+let memoryIndex = [];
+/** @type {Map<string, object>} */
+const memorySessions = new Map();
 
 function getOpenId() {
   try {
-    const user = wx.getStorageSync('daidai_user');
-    return (user && user.openid) || '';
+    const user = auth.getUser && auth.getUser();
+    if (user && user.openid) return user.openid;
+    const cached = wx.getStorageSync("daidai_user");
+    return (cached && cached.openid) || "";
   } catch (e) {
-    return '';
+    return "";
   }
 }
 
-function loadIndex(openid) {
-  const oid = openid || getOpenId();
-  try {
-    const list = wx.getStorageSync(storageKey(oid));
-    return Array.isArray(list) ? list : [];
-  } catch (e) {
-    return [];
-  }
-}
-
-function saveIndex(list, openid) {
-  const oid = openid || getOpenId();
-  wx.setStorageSync(storageKey(oid), (list || []).slice(0, MAX_SESSIONS));
-}
-
-/** 把过大的 dataURL 落到本地文件，避免撑爆 Storage */
-function persistImageField(msg) {
-  if (!msg || !msg.image) return msg;
-  const src = String(msg.image);
-  if (!src.startsWith('data:image')) return msg;
-
-  try {
-    const m = src.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
-    if (!m) return { ...msg, image: '', content: (msg.content || '') + '\n（图片过大，已省略）' };
-    const ext = m[1].includes('jpeg') || m[1].includes('jpg') ? 'jpg' : 'png';
-    const filePath = `${wx.env.USER_DATA_PATH}/daidai_${msg.id || Date.now()}.${ext}`;
-    wx.getFileSystemManager().writeFileSync(filePath, m[2], 'base64');
-    return { ...msg, image: filePath };
-  } catch (e) {
-    return {
-      ...msg,
-      image: '',
-      content: (msg.content || '') + '\n（图片保存失败）',
-    };
-  }
+function clearLocalCache() {
+  memoryIndex = [];
+  memorySessions.clear();
 }
 
 function sanitizeMessages(messages) {
@@ -62,50 +33,67 @@ function sanitizeMessages(messages) {
   return list
     .filter((m) => m && m.id && (m.content || m.image) && !m.loading)
     .slice(-MAX_MESSAGES)
-    .map((m) =>
-      persistImageField({
-        id: m.id,
-        role: m.role === 'user' ? 'user' : 'ai',
-        content: m.content || '',
-        image: m.image || '',
-        quote: m.quote || null,
-        imagePrompt: m.imagePrompt || '',
-        imageKind: m.imageKind || '',
-      })
-    );
+    .map((m) => ({
+      id: m.id,
+      role: m.role === "user" ? "user" : "ai",
+      content: m.content || "",
+      image: m.image || "",
+      quote: m.quote || null,
+      imagePrompt: m.imagePrompt || "",
+      imageKind: m.imageKind || "",
+    }));
 }
 
 function titleFromMessages(messages) {
-  const firstUser = (messages || []).find((m) => m.role === 'user' && m.content);
-  if (!firstUser) return '新对话';
-  return String(firstUser.content)
-    .replace(/^🎨\s*/g, '')
-    .replace(/^🖌️\s*/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 20) || '新对话';
+  const firstUser = (messages || []).find((m) => m.role === "user" && m.content);
+  if (!firstUser) return "新对话";
+  return (
+    String(firstUser.content)
+      .replace(/^🎨\s*/g, "")
+      .replace(/^🖌️\s*/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 20) || "新对话"
+  );
 }
 
 function previewFromMessages(messages) {
   const last = [...(messages || [])].reverse().find((m) => m.content || m.image);
-  if (!last) return '';
-  if (last.image && !last.content) return '[图片]';
-  return String(last.content || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+  if (!last) return "";
+  if (last.image && !last.content) return "[图片]";
+  return String(last.content || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 40);
+}
+
+function updateMemoryIndex(list) {
+  memoryIndex = (list || []).slice(0, MAX_SESSIONS);
+  return memoryIndex;
+}
+
+function putMemorySession(body) {
+  if (!body || !body.id) return;
+  memorySessions.set(body.id, body);
+  const list = memoryIndex.filter((s) => s.id !== body.id);
+  list.unshift({
+    id: body.id,
+    title: body.title,
+    preview: body.preview,
+    updatedAt: body.updatedAt || Date.now(),
+  });
+  updateMemoryIndex(list);
 }
 
 /**
- * 保存完整会话（索引 + 消息体）
+ * 保存完整会话到数据库
  * payload: { id, messages, meta }
  */
-function saveSession(payload, openid) {
-  const oid = openid || getOpenId();
-  if (!payload || !payload.id) return loadIndex(oid);
+function saveSession(payload) {
+  if (!payload || !payload.id) return memoryIndex.slice();
 
   const messages = sanitizeMessages(payload.messages);
-  if (!messages.length) {
-    // 空会话不入库
-    return loadIndex(oid);
-  }
+  if (!messages.length) return memoryIndex.slice();
 
   const title = payload.title || titleFromMessages(messages);
   const preview = payload.preview || previewFromMessages(messages);
@@ -117,147 +105,106 @@ function saveSession(payload, openid) {
     updatedAt,
     messages,
     meta: {
-      activeSkill: (payload.meta && payload.meta.activeSkill) || '',
-      skillLabel: (payload.meta && payload.meta.skillLabel) || '',
-      activeMask: (payload.meta && payload.meta.activeMask) || '',
-      maskLabel: (payload.meta && payload.meta.maskLabel) || '',
-      maskPrompt: (payload.meta && payload.meta.maskPrompt) || '',
-      welcomeEmoji: (payload.meta && payload.meta.welcomeEmoji) || '呆',
-      navSub: (payload.meta && payload.meta.navSub) || '随时帮忙',
-      imageSize: (payload.meta && payload.meta.imageSize) || '1152x1536',
+      activeSkill: (payload.meta && payload.meta.activeSkill) || "",
+      skillLabel: (payload.meta && payload.meta.skillLabel) || "",
+      activeMask: (payload.meta && payload.meta.activeMask) || "",
+      maskLabel: (payload.meta && payload.meta.maskLabel) || "",
+      maskPrompt: (payload.meta && payload.meta.maskPrompt) || "",
+      welcomeEmoji: (payload.meta && payload.meta.welcomeEmoji) || "呆",
+      navSub: (payload.meta && payload.meta.navSub) || "随时帮忙",
+      imageSize: (payload.meta && payload.meta.imageSize) || "1152x1536",
     },
   };
 
-  try {
-    wx.setStorageSync(sessionKey(oid, payload.id), body);
-  } catch (e) {
-    // 容量不够时再砍消息重试
-    try {
-      body.messages = body.messages.slice(-40).map((m) => ({
-        ...m,
-        image: m.image && String(m.image).startsWith('data:') ? '' : m.image,
-      }));
-      wx.setStorageSync(sessionKey(oid, payload.id), body);
-    } catch (err) {
-      console.warn('saveSession failed', err);
-      return loadIndex(oid);
-    }
+  putMemorySession(body);
+
+  if (auth.isLoggedIn()) {
+    historySync
+      .pushSession(body)
+      .then((remote) => {
+        if (remote && remote.length) updateMemoryIndex(remote);
+      })
+      .catch((e) => console.warn("pushSession failed", e && e.message));
   }
 
-  const list = loadIndex(oid).filter((s) => s.id !== payload.id);
-  list.unshift({
-    id: payload.id,
-    title: body.title,
-    preview: body.preview,
-    updatedAt,
-  });
-  saveIndex(list, oid);
-  historySync.pushSession(body).catch(() => {});
-  return list;
+  return memoryIndex.slice();
 }
 
-function getSession(id, openid) {
-  const oid = openid || getOpenId();
+function getSession(id) {
   if (!id) return null;
-  try {
-    const raw = wx.getStorageSync(sessionKey(oid, id));
-    if (!raw || !raw.id) return null;
-    return {
-      id: raw.id,
-      title: raw.title || '对话',
-      preview: raw.preview || '',
-      updatedAt: raw.updatedAt || 0,
-      messages: Array.isArray(raw.messages) ? raw.messages : [],
-      meta: raw.meta || {},
-    };
-  } catch (e) {
-    return null;
+  const hit = memorySessions.get(id);
+  if (!hit) return null;
+  return {
+    id: hit.id,
+    title: hit.title || "对话",
+    preview: hit.preview || "",
+    updatedAt: hit.updatedAt || 0,
+    messages: Array.isArray(hit.messages) ? hit.messages : [],
+    meta: hit.meta || {},
+  };
+}
+
+function removeSession(id) {
+  if (!id) return memoryIndex.slice();
+  memorySessions.delete(id);
+  updateMemoryIndex(memoryIndex.filter((s) => s.id !== id));
+  if (auth.isLoggedIn()) {
+    historySync
+      .removeRemoteSession(id)
+      .then((remote) => {
+        if (remote && Array.isArray(remote)) updateMemoryIndex(remote);
+      })
+      .catch((e) => console.warn("removeRemoteSession failed", e && e.message));
   }
+  return memoryIndex.slice();
 }
 
-function removeSession(id, openid) {
-  const oid = openid || getOpenId();
-  try {
-    wx.removeStorageSync(sessionKey(oid, id));
-  } catch (e) {
-    /* ignore */
+function clearHistory() {
+  clearLocalCache();
+}
+
+function loadHistory() {
+  return memoryIndex.slice();
+}
+
+async function loadHistoryFromServer() {
+  if (!auth.isLoggedIn()) {
+    clearLocalCache();
+    return [];
   }
-  const list = loadIndex(oid).filter((s) => s.id !== id);
-  saveIndex(list, oid);
-  historySync.removeRemoteSession(id).catch(() => {});
-  return list;
-}
-
-function clearHistory(openid) {
-  const oid = openid || getOpenId();
-  const list = loadIndex(oid);
-  list.forEach((s) => {
-    try {
-      wx.removeStorageSync(sessionKey(oid, s.id));
-    } catch (e) {
-      /* ignore */
-    }
-  });
-  saveIndex([], oid);
-}
-
-/** 兼容旧版只用摘要的列表 */
-function loadHistory(openid) {
-  return loadIndex(openid);
-}
-
-async function loadHistoryFromServer(openid) {
   const remote = await historySync.fetchSessions();
-  if (!remote || !remote.length) return loadHistory(openid);
-  const oid = openid || getOpenId();
-  saveIndex(remote, oid);
-  return remote;
+  if (!remote) return memoryIndex.slice();
+  updateMemoryIndex(remote);
+  return memoryIndex.slice();
 }
 
-async function openSessionFromServer(id, openid) {
-  const remote = await historySync.fetchSession(id);
-  if (!remote || !remote.id) return getSession(id, openid);
-  const oid = openid || getOpenId();
-  try {
-    wx.setStorageSync(sessionKey(oid, remote.id), remote);
-  } catch (e) {
-    console.warn('openSessionFromServer cache failed', e);
+async function openSessionFromServer(id) {
+  if (!id) return null;
+  if (auth.isLoggedIn()) {
+    const remote = await historySync.fetchSession(id);
+    if (remote && remote.id) {
+      putMemorySession(remote);
+      return remote;
+    }
   }
-  return remote;
+  return getSession(id);
 }
 
-async function syncAllLocalToServer(openid) {
-  const oid = openid || getOpenId();
-  const list = loadIndex(oid);
-  const sessions = [];
-  for (const item of list) {
-    const full = getSession(item.id, oid);
-    if (full && full.messages && full.messages.length) sessions.push(full);
-  }
-  if (!sessions.length) return list;
-  const remote = await historySync.syncLocalSessions(sessions);
-  if (remote && remote.length) {
-    saveIndex(remote, oid);
-    return remote;
-  }
-  return list;
+async function syncAllLocalToServer() {
+  // 兼容旧调用：以服务端列表为准
+  return loadHistoryFromServer();
 }
 
-function upsertSession(session, openid) {
-  // 兼容旧调用：若只传摘要，尽量补全已有消息体
-  const oid = openid || getOpenId();
-  if (!session || !session.id) return loadIndex(oid);
-  const exist = getSession(session.id, oid);
-  return saveSession(
-    {
-      id: session.id,
-      title: session.title,
-      preview: session.preview,
-      messages: (exist && exist.messages) || [],
-      meta: (exist && exist.meta) || {},
-    },
-    oid
-  );
+function upsertSession(session) {
+  if (!session || !session.id) return memoryIndex.slice();
+  const exist = getSession(session.id);
+  return saveSession({
+    id: session.id,
+    title: session.title,
+    preview: session.preview,
+    messages: (exist && exist.messages) || [],
+    meta: (exist && exist.meta) || {},
+  });
 }
 
 module.exports = {
@@ -265,12 +212,14 @@ module.exports = {
   loadHistoryFromServer,
   openSessionFromServer,
   syncAllLocalToServer,
-  loadIndex,
+  loadIndex: loadHistory,
   saveSession,
   getSession,
   removeSession,
   clearHistory,
+  clearLocalCache,
   upsertSession,
   titleFromMessages,
   previewFromMessages,
+  getOpenId,
 };

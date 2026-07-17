@@ -118,7 +118,7 @@
   <!-- 打开 AI 时的丝滑过渡层 -->
   <view class="ai-transit {{aiOpening ? 'show' : ''}}">
     <view class="ai-transit-sheet">
-      <view class="ai-transit-avatar">呆</view>
+      <image class="ai-transit-avatar" src="/assets/daidai-avatar.png" mode="aspectFill" />
       <view class="ai-transit-text">正在进入呆呆 AI</view>
     </view>
   </view>
