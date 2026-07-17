@@ -223,13 +223,14 @@ async function loadOverview() {
   const s = data.stats || {};
   const set = data.settings || {};
 
+  const totalNote = data.statsSource === "mysql" ? "累计（数据库）" : "本次运行";
   const cards = [
     ["对话成功", s.chat ?? 0, rate(s.chat, s.chatFail), Number(s.chatFail) > 0 ? "warn" : ""],
     ["生图成功", s.image ?? 0, rate(s.image, s.imageFail), Number(s.imageFail) > 0 ? "warn" : ""],
     ["改图成功", s.imageEdit ?? 0, rate(s.imageEdit, s.imageEditFail), ""],
-    ["登录次数", s.login ?? 0, "运行 " + fmtUptime(data.uptimeSec), ""],
-    ["对话失败", s.chatFail ?? 0, "累计失败", Number(s.chatFail) > 0 ? "bad" : ""],
-    ["生图失败", s.imageFail ?? 0, "累计失败", Number(s.imageFail) > 0 ? "bad" : ""],
+    ["登录次数", s.login ?? 0, totalNote, ""],
+    ["对话失败", s.chatFail ?? 0, totalNote, Number(s.chatFail) > 0 ? "bad" : ""],
+    ["生图失败", s.imageFail ?? 0, totalNote, Number(s.imageFail) > 0 ? "bad" : ""],
     [
       "限流阈值",
       set.rateLimitPerMin ?? "—",

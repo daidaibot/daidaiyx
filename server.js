@@ -578,20 +578,44 @@ app.get("/api/admin/overview", adminAuth, async (_req, res) => {
   const system = ops.getSystemInfo();
   const sec = ops.secretsStatus();
   const hourly = await ops.getHourlySeriesAsync(24);
+
+  // 优先用数据库累计值（跨重启持久），仅当库不可用时回退到本次运行的内存计数
+  let statsOut = {
+    chat: stats.chat,
+    image: stats.image,
+    imageEdit: stats.imageEdit,
+    login: stats.login,
+    chatFail: stats.chatFail,
+    imageFail: stats.imageFail,
+    imageEditFail: stats.imageEditFail,
+  };
+  let statsSource = "memory";
+  try {
+    if (db.isReady()) {
+      const totals = await usageStore.getTotals();
+      const metric = await ops.getMetricTotalsAsync();
+      statsOut = {
+        chat: totals.chat,
+        image: totals.image,
+        imageEdit: totals.imageEdit,
+        chatFail: totals.chatFail,
+        imageFail: totals.imageFail,
+        imageEditFail: totals.imageEditFail,
+        login: metric ? metric.login : stats.login,
+      };
+      statsSource = "mysql";
+    }
+  } catch (err) {
+    console.warn("overview totals fallback:", err && err.message);
+  }
+
   res.json({
     ok: true,
     brand: "呆呆网络",
     product: "呆呆 AI",
     uptimeSec: Math.floor((Date.now() - stats.startedAt) / 1000),
-    stats: {
-      chat: stats.chat,
-      image: stats.image,
-      imageEdit: stats.imageEdit,
-      login: stats.login,
-      chatFail: stats.chatFail,
-      imageFail: stats.imageFail,
-      imageEditFail: stats.imageEditFail,
-    },
+    statsSource,
+    stats: statsOut,
     hourly,
     system,
     settings: {
