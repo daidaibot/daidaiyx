@@ -1371,29 +1371,37 @@ Page({
     });
   },
 
-  /** 普通聊天里：基于上一张出图结果直接改图 */
+  /** 普通聊天里：基于上一张出图结果先确认，再改图 */
   startChatImageEdit(text, ref) {
     const prompt = stripEditCue(text);
     if (!prompt) return;
     const userMsg = { id: uid(), role: 'user', content: text };
-    const aiId = uid();
+    const confirmId = uid();
     this.pushMessages(
       [
         userMsg,
         {
-          id: aiId,
+          id: confirmId,
           role: 'ai',
-          content: '呆呆 AI 正在改图…',
-          loading: true,
+          content: `我理解你想基于上一张照片来改图：\n「${prompt.slice(
+            0,
+            120
+          )}」\n\n确认后我会用上一张图作为底图开始修改。`,
+          imageEditConfirm: true,
+          imageEditPromptDraft: prompt,
+          imageEditRef: ref,
         },
       ],
       {
         input: '',
         canSend: false,
-        busy: true,
+        scrollInto: `m-${confirmId}`,
       }
     );
     this.saveCurrentSession();
+  },
+
+  runConfirmedImageEdit(prompt, ref, aiId, userContent) {
     this.downloadImageAsB64((ref && ref.url) || '')
       .then(({ b64, path, mime }) => {
         this.sendImageEdit(prompt, {
@@ -1408,6 +1416,9 @@ Page({
       .catch((err) => {
         this.updateMessage(aiId, {
           loading: false,
+          imageEditConfirm: false,
+          imageEditPromptDraft: '',
+          imageEditRef: null,
           content: (err && err.message) || '无法读取上一张图片，请重试或手动上传改图。',
         });
         this.setData({ busy: false }, () => this.saveCurrentSession());
@@ -1517,15 +1528,15 @@ Page({
         this.sendImageEdit(text);
         return;
       }
-      // 生图技能 / 聊天里识别到出图意向 → 先确认再真正调用生图
-      if (this.data.activeSkill === 'image' || looksLikeImageRequest(text)) {
-        this.offerImageConfirm(text);
-        return;
-      }
       // 聊天里基于上一张图改图（如「在这一张的基础上把…换成…」）
       const lastImg = findLastResultImage(this.data.messages);
       if (lastImg && looksLikeImageEditRequest(text)) {
         this.startChatImageEdit(text, lastImg);
+        return;
+      }
+      // 生图技能 / 聊天里识别到出图意向 → 先确认再真正调用生图
+      if (this.data.activeSkill === 'image' || looksLikeImageRequest(text)) {
+        this.offerImageConfirm(text);
         return;
       }
       this.sendText(text);
@@ -1586,6 +1597,40 @@ Page({
       imageConfirm: false,
       imagePromptDraft: '',
       content: '已取消生成。想画的时候再说一声就行。',
+      loading: false,
+    });
+    this.saveCurrentSession();
+  },
+
+  onConfirmImageEdit(e) {
+    if (this.data.busy) return;
+    const id = e.currentTarget.dataset.id;
+    const msg = (this.data.messages || []).find((m) => String(m.id) === String(id));
+    if (!msg || !msg.imageEditPromptDraft || !msg.imageEditRef) return;
+    this.dismissKeyboard();
+    const prompt = String(msg.imageEditPromptDraft || '').trim();
+    if (!prompt) return;
+    this.setSkill('');
+    this.updateMessage(id, {
+      imageEditConfirm: false,
+      imageEditPromptDraft: '',
+      imageEditRef: null,
+      content: '好的，开始基于上一张照片改图…',
+      loading: true,
+    });
+    this.setData({ busy: true, input: '', canSend: false });
+    this.runConfirmedImageEdit(prompt, msg.imageEditRef, id, prompt);
+  },
+
+  onCancelImageEdit(e) {
+    const id = e.currentTarget.dataset.id;
+    this.dismissKeyboard();
+    this.setSkill('');
+    this.updateMessage(id, {
+      imageEditConfirm: false,
+      imageEditPromptDraft: '',
+      imageEditRef: null,
+      content: '已取消改图。需要改上一张图时再告诉我。',
       loading: false,
     });
     this.saveCurrentSession();

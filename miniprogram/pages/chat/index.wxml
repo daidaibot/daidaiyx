@@ -105,6 +105,18 @@
                   catchtap="onCancelImageGen"
                 >取消</view>
               </view>
+              <view wx:if="{{item.imageEditConfirm}}" class="bubble-actions" catchtap="noop">
+                <view
+                  class="action-btn primary"
+                  data-id="{{item.id}}"
+                  catchtap="onConfirmImageEdit"
+                >确认改图</view>
+                <view
+                  class="action-btn"
+                  data-id="{{item.id}}"
+                  catchtap="onCancelImageEdit"
+                >取消</view>
+              </view>
               <image
                 wx:if="{{item.image}}"
                 class="bubble-img"
