@@ -411,15 +411,37 @@ function renderErrors() {
     : `<tr><td colspan="5">暂无错误</td></tr>`;
 }
 
+const USERS_PAGE_SIZE = 20;
+let usersPage = 1;
+let usersTotalPages = 1;
+
+function renderUsersPager() {
+  const info = document.getElementById("usersPageInfo");
+  const prev = document.getElementById("usersPrevBtn");
+  const next = document.getElementById("usersNextBtn");
+  if (info) info.textContent = `第 ${usersPage} / ${usersTotalPages} 页`;
+  if (prev) prev.disabled = usersPage <= 1;
+  if (next) next.disabled = usersPage >= usersTotalPages;
+}
+
 async function loadUsers() {
   const q = (document.getElementById("usersQuery") && document.getElementById("usersQuery").value) || "";
-  const data = await api(`/api/admin/users?limit=100&offset=0&q=${encodeURIComponent(q)}`);
+  const offset = (usersPage - 1) * USERS_PAGE_SIZE;
+  const data = await api(
+    `/api/admin/users?limit=${USERS_PAGE_SIZE}&offset=${offset}&q=${encodeURIComponent(q)}`
+  );
   const body = document.getElementById("usersBody");
   const meta = document.getElementById("usersMeta");
-  const users = data.users || [];
-  const memberCount = users.filter((u) => u.isMember).length;
-  const bannedCount = users.filter((u) => u.isBanned).length;
-  meta.textContent = `共 ${data.total || 0} 人 · 会员 ${memberCount} · 封禁 ${bannedCount} · ${
+  let users = data.users || [];
+  const total = Number(data.total || 0);
+  usersTotalPages = Math.max(1, Math.ceil(total / USERS_PAGE_SIZE));
+  // 搜索后总页数变少时，回退到最后一页重新拉取
+  if (usersPage > usersTotalPages) {
+    usersPage = usersTotalPages;
+    return loadUsers();
+  }
+  renderUsersPager();
+  meta.textContent = `共 ${total} 人 · 每页 ${USERS_PAGE_SIZE} 人 · ${
     data.source === "mysql" ? "MySQL" : "本地文件"
   }${data.dbReady ? "" : "（未连库）"}`;
   if (!users.length) {
@@ -430,7 +452,7 @@ async function loadUsers() {
   // 并行拉今日用量（失败不挡列表）
   const usageMap = {};
   await Promise.all(
-    users.slice(0, 40).map(async (u) => {
+    users.map(async (u) => {
       try {
         const st = await api(`/api/admin/users/${encodeURIComponent(u.openid)}/stats?days=1`);
         usageMap[u.openid] = st;
@@ -999,13 +1021,35 @@ document.querySelectorAll(".nav").forEach((btn) => {
 const usersSearchBtn = document.getElementById("usersSearchBtn");
 const usersRefreshBtn = document.getElementById("usersRefreshBtn");
 const usersQuery = document.getElementById("usersQuery");
-if (usersSearchBtn) usersSearchBtn.addEventListener("click", () => loadUsers().catch((e) => toast(e.message, "bad")));
+if (usersSearchBtn)
+  usersSearchBtn.addEventListener("click", () => {
+    usersPage = 1;
+    loadUsers().catch((e) => toast(e.message, "bad"));
+  });
 if (usersRefreshBtn) usersRefreshBtn.addEventListener("click", () => loadUsers().catch((e) => toast(e.message, "bad")));
 if (usersQuery) {
   usersQuery.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") loadUsers().catch((err) => toast(err.message, "bad"));
+    if (e.key === "Enter") {
+      usersPage = 1;
+      loadUsers().catch((err) => toast(err.message, "bad"));
+    }
   });
 }
+
+const usersPrevBtn = document.getElementById("usersPrevBtn");
+const usersNextBtn = document.getElementById("usersNextBtn");
+if (usersPrevBtn)
+  usersPrevBtn.addEventListener("click", () => {
+    if (usersPage <= 1) return;
+    usersPage -= 1;
+    loadUsers().catch((e) => toast(e.message, "bad"));
+  });
+if (usersNextBtn)
+  usersNextBtn.addEventListener("click", () => {
+    if (usersPage >= usersTotalPages) return;
+    usersPage += 1;
+    loadUsers().catch((e) => toast(e.message, "bad"));
+  });
 
 const usersBody = document.getElementById("usersBody");
 if (usersBody) {
