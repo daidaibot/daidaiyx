@@ -1,0 +1,15 @@
+---
+description: 代码改完后直接提交并推送到 GitHub，不要先问用户
+alwaysApply: true
+---
+
+# 自动更新 GitHub
+
+完成功能修改或修复后，直接：
+
+1. `git add` 相关文件并 `git commit`（中文简明说明 why）
+2. `git push` 到 `origin` 当前分支
+
+不要先问「要不要提交 / 要不要推送」。用户已明确要求：以后别问，直接更新。
+
+仍须遵守：不提交密钥/凭证；不 force push main；不改 git config。
