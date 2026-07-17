@@ -1556,19 +1556,88 @@ Page({
         this.sendImageEdit(text);
         return;
       }
-      // 聊天里基于上一张图改图（如「在这一张的基础上把…换成…」）
-      const lastImg = findLastResultImage(this.data.messages);
+      this.routeUserMessage(text).catch((err) => {
+        wx.showToast({ title: (err && err.message) || '发送失败', icon: 'none' });
+        this.setData({ canSend: this.computeCanSend(this.data.input) });
+      });
+    });
+  },
+
+  /** 调用 DeepSeek 分析生图/改图意向，再决定走确认生图、确认改图或普通聊天 */
+  fetchChatIntent(text, hasRecentImage) {
+    const app = getApp();
+    const apiBase = (app.globalData && app.globalData.apiBase) || '';
+    if (!apiBase) {
+      return Promise.reject(new Error('未连接服务器'));
+    }
+    return new Promise((resolve, reject) => {
+      wx.request({
+        url: `${apiBase.replace(/\/$/, '')}/api/chat/intent`,
+        method: 'POST',
+        timeout: 15000,
+        header: Object.assign({ 'content-type': 'application/json' }, authHeader()),
+        data: {
+          text,
+          hasRecentImage: !!hasRecentImage,
+        },
+        success: (res) => {
+          const data = typeof res.data === 'object' && res.data ? res.data : {};
+          if (res.statusCode >= 200 && res.statusCode < 300 && data.ok) {
+            resolve(data);
+            return;
+          }
+          reject(
+            new Error(
+              (data.error && data.error.message) ||
+                `意图分析失败(${res.statusCode || '?'})`
+            )
+          );
+        },
+        fail: (err) =>
+          reject(new Error((err && err.errMsg) || '网络错误，请稍后再试')),
+      });
+    });
+  },
+
+  routeUserMessage(text) {
+    const lastImg = findLastResultImage(this.data.messages);
+    // 用户主动点了「生图」技能，直接走确认，不再调意向分析
+    if (this.data.activeSkill === 'image') {
+      this.offerImageConfirm(text);
+      return Promise.resolve();
+    }
+
+    this.setData({ canSend: false });
+
+    const fallbackRoute = () => {
       if (lastImg && looksLikeImageEditRequest(text)) {
         this.startChatImageEdit(text, lastImg);
         return;
       }
-      // 生图技能 / 聊天里识别到出图意向 → 先确认再真正调用生图
-      if (this.data.activeSkill === 'image' || looksLikeImageRequest(text)) {
+      if (looksLikeImageRequest(text)) {
         this.offerImageConfirm(text);
         return;
       }
       this.sendText(text);
-    });
+    };
+
+    return this.fetchChatIntent(text, !!lastImg)
+      .then((data) => {
+        const intent = String(data.intent || 'chat');
+        const prompt = String(data.prompt || text).trim();
+        if (intent === 'image_edit' && lastImg) {
+          this.startChatImageEdit(text, lastImg);
+          return;
+        }
+        if (intent === 'image_generate') {
+          this.offerImageConfirm(prompt || text);
+          return;
+        }
+        this.sendText(text);
+      })
+      .catch(() => {
+        fallbackRoute();
+      });
   },
 
   offerImageConfirm(text) {

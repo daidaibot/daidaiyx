@@ -15,6 +15,7 @@ const maskStore = require("./lib/maskStore");
 const blobStore = require("./lib/blobStore");
 const { outboundFetch } = require("./lib/outbound");
 
+const chatIntent = require("./lib/chatIntent");
 const app = express();
 const PORT = Number(process.env.PORT) || 80;
 
@@ -756,6 +757,7 @@ app.get("/api/admin/routes", adminAuth, (_req, res) => {
       { method: "POST", path: "/api/auth/login", desc: "小程序微信登录" },
       { method: "POST", path: "/api/auth/web-login", desc: "网页站长通行" },
       { method: "GET", path: "/api/public/status", desc: "公开状态/公告" },
+      { method: "POST", path: "/api/chat/intent", desc: "对话意向分析（生图/改图/聊天）" },
       { method: "POST", path: "/api/chat", desc: "对话代理" },
       { method: "POST", path: "/api/image", desc: "生图" },
       { method: "POST", path: "/api/image/edit", desc: "改图" },
@@ -1453,6 +1455,39 @@ app.get("/api/chat/health", (_req, res) => {
     });
   }
   res.json({ ok: true, product: "呆呆 AI" });
+});
+
+/** 用 DeepSeek 分析用户是否有生图/改图意向（非关键词规则） */
+app.post("/api/chat/intent", authStore.userAuthRequired, gateProductApi("chat"), async (req, res) => {
+  const chatKey = ops.getChatKey();
+  if (!chatKey) {
+    return res.status(503).json({
+      ok: false,
+      error: { message: "呆呆 AI 对话服务未就绪" },
+    });
+  }
+  const body = req.body || {};
+  const text = String(body.text || "").trim();
+  if (!text) {
+    return res.status(400).json({ ok: false, error: { message: "text 不能为空" } });
+  }
+  const hasRecentImage = Boolean(body.hasRecentImage);
+  try {
+    const result = await chatIntent.analyzeUserIntent({
+      text,
+      hasRecentImage,
+      chatKey,
+      chatBaseUrl: CHAT_BASE_URL,
+      model: DEFAULT_MODEL,
+    });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.warn("chat intent error:", err && err.message);
+    res.status(502).json({
+      ok: false,
+      error: { message: (err && err.message) || "意图分析失败" },
+    });
+  }
 });
 
 app.post("/api/chat", authStore.userAuthRequired, gateProductApi("chat"), async (req, res) => {
