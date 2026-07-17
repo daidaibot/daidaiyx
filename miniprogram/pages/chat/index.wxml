@@ -151,7 +151,7 @@
   </view>
 
   <view
-    class="composer {{activeSkill === 'edit' ? 'edit-mode' : ''}}"
+    class="composer {{activeSkill === 'edit' || activeSkill === 'vision' ? 'edit-mode' : ''}}"
     catchtap="noop"
   >
     <view class="quote-bar" wx:if="{{quoteMsg}}">
@@ -179,14 +179,14 @@
     <view class="composer-box {{inputFocus ? 'focus' : ''}}">
       <view class="plus-wrap">
         <view
-          wx:if="{{activeSkill === 'edit'}}"
+          wx:if="{{activeSkill === 'edit' || activeSkill === 'vision'}}"
           class="edit-exit"
           bindtap="clearSkill"
         >退出</view>
         <view
-          wx:if="{{activeSkill === 'edit'}}"
+          wx:if="{{activeSkill === 'edit' || activeSkill === 'vision'}}"
           class="plus upload {{editImagePath ? 'has-img' : ''}}"
-          bindtap="pickEditImage"
+          bindtap="onPickAttachImage"
         >
           <image
             wx:if="{{editImagePath}}"
@@ -197,7 +197,7 @@
           <text wx:else class="plus-upload-ico">⬆</text>
         </view>
         <view
-          wx:if="{{activeSkill === 'edit' && editImagePath}}"
+          wx:if="{{(activeSkill === 'edit' || activeSkill === 'vision') && editImagePath}}"
           class="edit-clear"
           catchtap="clearEditImage"
         >换图</view>
@@ -223,7 +223,7 @@
         disabled="{{busy}}"
       />
       <view class="send {{canSend ? 'on' : ''}}" bindtap="onSend">
-        {{activeSkill === 'image' ? '生成' : activeSkill === 'edit' ? '改图' : '发送'}}
+        {{activeSkill === 'image' ? '生成' : activeSkill === 'edit' ? '改图' : activeSkill === 'vision' ? '识图' : '发送'}}
       </view>
     </view>
     <view class="safe"></view>

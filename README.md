@@ -29,8 +29,10 @@ AppID：`wxdf3dcb6c1680f134`。
 | `ADMIN_PASSWORD` | 管理后台密码 |
 | `WECHAT_APPID` / `WECHAT_SECRET` | 小程序微信登录 |
 | `DAIDAI_AI_KEY` | 呆呆 AI（对话）密钥 |
-| `DAIDAI_IMAGE_KEY` | 呆呆 Image 密钥（OpenAI `sk-`） |
+| `DAIDAI_IMAGE_KEY` | 呆呆 Image 密钥（OpenAI `sk-`，**仅生图/改图**） |
 | `DAIDAI_IMAGE_BASE_URL` | **`http://154.12.94.236`**（国外 VPS 中转，不要加 `/v1`） |
+| `DOUBAO_ARK_API_KEY` | 火山方舟 API Key（**仅识图**，也可用 `ARK_API_KEY`） |
+| `DOUBAO_VISION_MODEL` | 可选，默认 `doubao-1.5-vision-pro` |
 | `DAIDAI_API_BASE` | `https://dai.52xv.com` |
 | `MYSQL_ADDRESS` | 云托管 MySQL 内网地址（控制台 MySQL 页，格式 `IP:端口`） |
 | `MYSQL_USERNAME` | 云托管 MySQL 用户名 |

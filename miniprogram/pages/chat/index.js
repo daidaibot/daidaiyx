@@ -49,6 +49,14 @@ const SKILLS = [
     placeholder: '先上传图片，再说怎么改…',
   },
   {
+    id: 'vision',
+    name: '识图',
+    desc: '上传图片，问它是什么',
+    emoji: '👁️',
+    bg: 'rgba(99,102,241,0.12)',
+    placeholder: '先上传图片，再提问（如：这是什么？）…',
+  },
+  {
     id: 'write',
     name: '帮我写作',
     desc: '文案、润色、扩写',
@@ -1092,7 +1100,7 @@ Page({
   computeCanSend(input) {
     const text = (input !== undefined ? input : this.data.input || '').trim();
     if (this.data.busy) return false;
-    if (this.data.activeSkill === 'edit') {
+    if (this.data.activeSkill === 'edit' || this.data.activeSkill === 'vision') {
       return !!text && !!this.data.editImagePath;
     }
     return !!text;
@@ -1349,12 +1357,15 @@ Page({
       showSheet: false,
       imageSize: this.defaultSizeForSkill(id),
     };
-    if (id !== 'edit') {
+    if (id !== 'edit' && id !== 'vision') {
       patch.editImagePath = '';
       patch.editImageB64 = '';
     }
     this.setData(patch, () => {
       this.setData({ canSend: this.computeCanSend(this.data.input) });
+      if ((id === 'edit' || id === 'vision') && !this.data.editImagePath) {
+        this.pickAttachImage(id);
+      }
     });
   },
 
@@ -1372,7 +1383,11 @@ Page({
 
   /** 生图/改图成功后回到普通聊天，避免下一条又触发出图 */
   finishVisualSkillAfterDone() {
-    if (this.data.activeSkill === 'image' || this.data.activeSkill === 'edit') {
+    if (
+      this.data.activeSkill === 'image' ||
+      this.data.activeSkill === 'edit' ||
+      this.data.activeSkill === 'vision'
+    ) {
       this.setSkill('');
     }
   },
@@ -1654,6 +1669,10 @@ Page({
         this.sendImageEdit(text);
         return;
       }
+      if (this.data.activeSkill === 'vision') {
+        this.sendVision(text);
+        return;
+      }
       this.routeUserMessage(text).catch((err) => {
         wx.showToast({ title: (err && err.message) || '发送失败', icon: 'none' });
         this.setData({ canSend: this.computeCanSend(this.data.input) });
@@ -1854,6 +1873,20 @@ Page({
   },
 
   pickEditImage() {
+    this.pickAttachImage('edit');
+  },
+
+  pickVisionImage() {
+    this.pickAttachImage('vision');
+  },
+
+  onPickAttachImage() {
+    const skill = this.data.activeSkill === 'vision' ? 'vision' : 'edit';
+    this.pickAttachImage(skill);
+  },
+
+  pickAttachImage(skillId) {
+    const skill = skillById(skillId) || skillById('edit');
     this.withService(() => {
       wx.chooseMedia({
         count: 1,
@@ -1880,9 +1913,9 @@ Page({
                 }
                 this.setData(
                   {
-                    activeSkill: 'edit',
-                    skillLabel: '改图',
-                    placeholder: '说说怎么改这张图…',
+                    activeSkill: skill.id,
+                    skillLabel: skill.name,
+                    placeholder: skill.placeholder,
                     editImagePath: finalPath,
                     editImageB64: r.data,
                     editMime: 'image/jpeg',
@@ -1891,12 +1924,14 @@ Page({
                   },
                   () => this.setData({ canSend: this.computeCanSend(this.data.input) })
                 );
-                wx.showToast({ title: '已选图，写明怎么改', icon: 'none' });
+                wx.showToast({
+                  title: skill.id === 'vision' ? '已选图，写下你的问题' : '已选图，写明怎么改',
+                  icon: 'none',
+                });
               },
               fail: () => wx.showToast({ title: '读取图片失败', icon: 'none' }),
             });
           };
-          // 再压一档，避免 request 体过大
           if (typeof wx.compressImage === 'function') {
             wx.compressImage({
               src: path,
@@ -1909,6 +1944,81 @@ Page({
           }
         },
       });
+    });
+  },
+
+  sendVision(prompt) {
+    if (!this.data.editImagePath || !this.data.editImageB64) {
+      wx.showToast({ title: '请先上传图片', icon: 'none' });
+      this.pickVisionImage();
+      return;
+    }
+    const srcPath = this.data.editImagePath;
+    const userMsg = {
+      id: uid(),
+      role: 'user',
+      content: prompt,
+      image: srcPath,
+    };
+    const aiId = uid();
+    this.pushMessages(
+      [
+        userMsg,
+        {
+          id: aiId,
+          role: 'ai',
+          content: '呆呆 AI 正在识图…',
+          loading: true,
+        },
+      ],
+      {
+        input: '',
+        canSend: false,
+        busy: true,
+      }
+    );
+
+    const app = getApp();
+    const apiBase = (app.globalData && app.globalData.apiBase) || '';
+    if (!apiBase) {
+      this.updateMessage(aiId, {
+        loading: false,
+        content: '请先配置服务后再识图。',
+      });
+      this.setData({ busy: false });
+      return;
+    }
+
+    wx.request({
+      url: `${apiBase.replace(/\/$/, '')}/api/vision`,
+      method: 'POST',
+      timeout: 90000,
+      header: Object.assign({ 'content-type': 'application/json' }, authHeader()),
+      data: {
+        prompt,
+        image_b64: this.data.editImageB64,
+        mime: this.data.editMime || 'image/jpeg',
+      },
+      success: (res) => {
+        const data = typeof res.data === 'object' && res.data ? res.data : {};
+        const content =
+          data.content ||
+          (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) ||
+          (data.error && data.error.message) ||
+          `识图失败（${res.statusCode || '?'}）`;
+        this.updateMessage(aiId, { loading: false, content: String(content) });
+        this.setData({ busy: false }, () => {
+          this.finishVisualSkillAfterDone();
+          this.saveCurrentSession();
+        });
+      },
+      fail: (err) => {
+        this.updateMessage(aiId, {
+          loading: false,
+          content: (err && err.errMsg) || '识图网络失败',
+        });
+        this.setData({ busy: false }, () => this.saveCurrentSession());
+      },
     });
   },
 

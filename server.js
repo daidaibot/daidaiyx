@@ -14,7 +14,7 @@ const usageStore = require("./lib/usageStore");
 const maskStore = require("./lib/maskStore");
 const blobStore = require("./lib/blobStore");
 const { outboundFetch } = require("./lib/outbound");
-
+const doubaoImage = require("./lib/doubaoImage");
 const chatIntent = require("./lib/chatIntent");
 const app = express();
 const PORT = Number(process.env.PORT) || 80;
@@ -598,6 +598,7 @@ app.get("/api/admin/overview", adminAuth, async (_req, res) => {
         chat: totals.chat,
         image: totals.image,
         imageEdit: totals.imageEdit,
+        imageTotal: totals.imageTotal,
         chatFail: totals.chatFail,
         imageFail: totals.imageFail,
         imageEditFail: totals.imageEditFail,
@@ -638,8 +639,12 @@ app.get("/api/admin/overview", adminAuth, async (_req, res) => {
     upstream: {
       chatBase: CHAT_BASE_URL,
       imageBase: IMAGE_BASE_URL,
+      imageProvider: "openai",
+      visionProvider: "doubao",
       chatModel: DEFAULT_MODEL,
       imageModel: IMAGE_MODEL,
+      visionModel: doubaoImage.visionModel(),
+      visionConfigured: Boolean(ops.getDoubaoKey()),
     },
     models: {
       chat: "呆呆 AI",
@@ -785,6 +790,7 @@ app.get("/api/admin/routes", adminAuth, (_req, res) => {
       { method: "POST", path: "/api/chat", desc: "对话代理" },
       { method: "POST", path: "/api/image", desc: "生图" },
       { method: "POST", path: "/api/image/edit", desc: "改图" },
+      { method: "POST", path: "/api/vision", desc: "识图（豆包视觉）" },
       { method: "GET", path: "/api/admin/users", desc: "用户列表" },
       { method: "POST", path: "/api/admin/users/member", desc: "设置会员（后台）" },
       { method: "GET", path: "/health", desc: "健康检查" },
@@ -1731,8 +1737,9 @@ async function fetchUpstreamImageGeneration(imageKey, bodyObj) {
   };
 }
 
-async function generateImageOnce({ imageKey, prompt, size, origin }) {
+async function generateImageOnce({ imageKey, prompt, size, origin, openid, jobId }) {
   const model = IMAGE_MODEL;
+  const started = Date.now();
   const basePayload = {
     model,
     prompt,
@@ -1741,11 +1748,7 @@ async function generateImageOnce({ imageKey, prompt, size, origin }) {
     quality: "medium",
     output_format: "jpeg",
   };
-  const started = Date.now();
-  let { upstream, raw, mode } = await fetchUpstreamImageGeneration(
-    imageKey,
-    basePayload
-  );
+  let { upstream, raw, mode } = await fetchUpstreamImageGeneration(imageKey, basePayload);
 
   if (
     !upstream.ok &&
@@ -1779,7 +1782,13 @@ async function generateImageOnce({ imageKey, prompt, size, origin }) {
     err.status = 502;
     throw err;
   }
-  const saved = await imageOut.saveGeneratedImage(item);
+  const saved = await imageOut.saveGeneratedImage(item, {
+    openid: openid || "",
+    jobId: jobId || "",
+    kind: "generate",
+    prompt: String(prompt || "").slice(0, 500),
+    size: size || "",
+  });
   const imageUrl = origin
     ? `${origin}/api/image/file/${saved.id}`
     : `/api/image/file/${saved.id}`;
@@ -1791,6 +1800,7 @@ async function generateImageOnce({ imageKey, prompt, size, origin }) {
     revised_prompt: item.revised_prompt || "",
     model,
     proxyMode: mode,
+    provider: "openai",
   };
 }
 
@@ -1834,9 +1844,9 @@ app.post("/api/image", authStore.userAuthRequired, gateProductApi("image"), asyn
     return res.status(400).json({ error: errorPayload("prompt 不能为空", res) });
   }
 
-  let quota;
+  let quotaPreview;
   try {
-    quota = await usageStore.tryConsumeImageQuota(openid);
+    quotaPreview = await usageStore.assertImageQuota(openid);
   } catch (err) {
     if (err.code === "QUOTA") {
       return res.status(429).json({
@@ -1856,6 +1866,20 @@ app.post("/api/image", authStore.userAuthRequired, gateProductApi("image"), asyn
   const origin = imageOut.publicOrigin(req, ops.loadSettings());
   const wantSync = body.sync === true || body.sync === 1 || body.sync === "1";
 
+  async function finishImageOk(result) {
+    let quota = quotaPreview;
+    try {
+      quota = await usageStore.tryConsumeImageQuota(openid);
+    } catch (_) {
+      /* 出图已成功，额度边界竞态时仍记成功 */
+    }
+    stats.image += 1;
+    ops.bumpHourly("image");
+    ops.pushLatency("image", result.ms);
+    usageStore.recordImage(openid, "generate", true).catch(() => {});
+    return quota;
+  }
+
   if (!wantSync) {
     let job;
     try {
@@ -1874,15 +1898,20 @@ app.post("/api/image", authStore.userAuthRequired, gateProductApi("image"), asyn
       id: job.id,
       product: "呆呆 Image",
       message: "生图任务已提交，请轮询 /api/image/job/:id",
-      quota,
+      quota: quotaPreview,
+      provider: "openai",
     });
     setImmediate(async () => {
       try {
-        const result = await generateImageOnce({ imageKey, prompt, size, origin });
-        stats.image += 1;
-        ops.bumpHourly("image");
-        ops.pushLatency("image", result.ms);
-        usageStore.recordImage(openid, "generate", true).catch(() => {});
+        const result = await generateImageOnce({
+          imageKey,
+          prompt,
+          size,
+          origin,
+          openid,
+          jobId: job.id,
+        });
+        await finishImageOk(result);
         await imageJobs.updateJob(job.id, {
           status: "done",
           image: result.image,
@@ -1890,7 +1919,9 @@ app.post("/api/image", authStore.userAuthRequired, gateProductApi("image"), asyn
           ms: result.ms,
           error: "",
         });
-        console.log(`[image-ok] job=${job.id} id=${result.imageId} bytes=${result.bytes} ms=${result.ms}`);
+        console.log(
+          `[image-ok] job=${job.id} id=${result.imageId} bytes=${result.bytes} ms=${result.ms} provider=${result.provider}`
+        );
       } catch (err) {
         stats.imageFail += 1;
         usageStore.recordImage(openid, "generate", false).catch(() => {});
@@ -1921,11 +1952,8 @@ app.post("/api/image", authStore.userAuthRequired, gateProductApi("image"), asyn
   }
 
   try {
-    const result = await generateImageOnce({ imageKey, prompt, size, origin });
-    stats.image += 1;
-    ops.bumpHourly("image");
-    ops.pushLatency("image", result.ms);
-    usageStore.recordImage(openid, "generate", true).catch(() => {});
+    const result = await generateImageOnce({ imageKey, prompt, size, origin, openid });
+    const quota = await finishImageOk(result);
     res.json({
       ok: true,
       product: "呆呆 Image",
@@ -1934,6 +1962,7 @@ app.post("/api/image", authStore.userAuthRequired, gateProductApi("image"), asyn
       imageId: result.imageId,
       revised_prompt: result.revised_prompt || "",
       quota,
+      provider: result.provider,
     });
   } catch (err) {
     console.error("image proxy error:", err);
@@ -1980,10 +2009,11 @@ app.get("/api/image/job/:id", async (req, res) => {
 });
 
 /**
- * 改图核心：原图 + 指令 → 上游 edits → 压缩打水印存盘
+ * 改图核心：原图 + 指令 → GPT images/edits → 压缩打水印存盘
  */
-async function runImageEditOnce({ imageKey, prompt, imageB64, mime, size, origin }) {
+async function runImageEditOnce({ imageKey, prompt, imageB64, mime, size, origin, openid, jobId }) {
   const model = IMAGE_MODEL;
+  const started = Date.now();
   const type = mime || "image/png";
   const ext = type.includes("jpeg") || type.includes("jpg") ? "jpg" : "png";
   const buf = Buffer.from(imageB64, "base64");
@@ -2020,7 +2050,6 @@ async function runImageEditOnce({ imageKey, prompt, imageB64, mime, size, origin
     return { upstream, raw, data };
   }
 
-  const started = Date.now();
   let { upstream, raw, data } = await callEdit("image[]");
   if (!upstream.ok) {
     const retry = await callEdit("image");
@@ -2039,14 +2068,19 @@ async function runImageEditOnce({ imageKey, prompt, imageB64, mime, size, origin
       throw err;
     }
   }
-
   const item = data?.data?.[0] || {};
   if (!item.b64_json && !item.url) {
     const err = new Error("上游未返回图片数据");
     err.status = 502;
     throw err;
   }
-  const saved = await imageOut.saveGeneratedImage(item);
+  const saved = await imageOut.saveGeneratedImage(item, {
+    openid: openid || "",
+    jobId: jobId || "",
+    kind: "edit",
+    prompt: String(prompt || "").slice(0, 500),
+    size: size || "",
+  });
   const imageUrl = origin
     ? `${origin}/api/image/file/${saved.id}`
     : `/api/image/file/${saved.id}`;
@@ -2057,6 +2091,8 @@ async function runImageEditOnce({ imageKey, prompt, imageB64, mime, size, origin
     ms: Date.now() - started,
     revised_prompt: item.revised_prompt || "",
     size: size || "auto",
+    model,
+    provider: "openai",
   };
 }
 
@@ -2106,9 +2142,9 @@ app.post("/api/image/edit", authStore.userAuthRequired, gateProductApi("imageEdi
   }
   imageB64 = imageB64.replace(/\s+/g, "");
 
-  let quota;
+  let quotaPreview;
   try {
-    quota = await usageStore.tryConsumeImageQuota(openid);
+    quotaPreview = await usageStore.assertImageQuota(openid);
   } catch (err) {
     if (err.code === "QUOTA") {
       return res.status(429).json({
@@ -2127,6 +2163,20 @@ app.post("/api/image/edit", authStore.userAuthRequired, gateProductApi("imageEdi
   const size = body.size || "1152x1536";
   const origin = imageOut.publicOrigin(req, ops.loadSettings());
   const wantSync = body.sync === true || body.sync === 1 || body.sync === "1";
+
+  async function finishEditOk(result) {
+    let quota = quotaPreview;
+    try {
+      quota = await usageStore.tryConsumeImageQuota(openid);
+    } catch (_) {
+      /* ignore */
+    }
+    stats.imageEdit += 1;
+    ops.bumpHourly("imageEdit");
+    ops.pushLatency("imageEdit", result.ms);
+    usageStore.recordImage(openid, "edit", true).catch(() => {});
+    return quota;
+  }
 
   if (!wantSync) {
     let job;
@@ -2151,7 +2201,8 @@ app.post("/api/image/edit", authStore.userAuthRequired, gateProductApi("imageEdi
       id: job.id,
       product: "呆呆 Image",
       message: "改图任务已提交，请轮询 /api/image/job/:id",
-      quota,
+      quota: quotaPreview,
+      provider: "openai",
     });
     setImmediate(async () => {
       try {
@@ -2162,11 +2213,10 @@ app.post("/api/image/edit", authStore.userAuthRequired, gateProductApi("imageEdi
           mime,
           size,
           origin,
+          openid,
+          jobId: job.id,
         });
-        stats.imageEdit += 1;
-        ops.bumpHourly("imageEdit");
-        ops.pushLatency("imageEdit", result.ms);
-        usageStore.recordImage(openid, "edit", true).catch(() => {});
+        await finishEditOk(result);
         await imageJobs.updateJob(job.id, {
           status: "done",
           image: result.image,
@@ -2174,7 +2224,7 @@ app.post("/api/image/edit", authStore.userAuthRequired, gateProductApi("imageEdi
           ms: result.ms,
           error: "",
         });
-        console.log(`[image-edit-ok] job=${job.id} id=${result.imageId} ms=${result.ms}`);
+        console.log(`[image-edit-ok] job=${job.id} id=${result.imageId} ms=${result.ms} provider=${result.provider}`);
       } catch (err) {
         stats.imageEditFail += 1;
         usageStore.recordImage(openid, "edit", false).catch(() => {});
@@ -2207,11 +2257,9 @@ app.post("/api/image/edit", authStore.userAuthRequired, gateProductApi("imageEdi
       mime,
       size,
       origin,
+      openid,
     });
-    stats.imageEdit += 1;
-    ops.bumpHourly("imageEdit");
-    ops.pushLatency("imageEdit", result.ms);
-    usageStore.recordImage(openid, "edit", true).catch(() => {});
+    const quota = await finishEditOk(result);
     res.json({
       ok: true,
       product: "呆呆 Image",
@@ -2220,6 +2268,7 @@ app.post("/api/image/edit", authStore.userAuthRequired, gateProductApi("imageEdi
       imageId: result.imageId,
       revised_prompt: result.revised_prompt || "",
       quota,
+      provider: result.provider,
     });
   } catch (err) {
     console.error("image edit proxy error:", err);
@@ -2260,6 +2309,81 @@ app.get("/api/image/file/:id", async (req, res) => {
   }
   res.type(hit.mime || "image/jpeg");
   res.send(hit.buffer);
+});
+
+/**
+ * 豆包识图：上传图片 + 问题，返回文字描述/回答
+ * body: { prompt?, image_b64, mime? } 或 { prompt?, image_url }
+ */
+app.post("/api/vision", authStore.userAuthRequired, gateProductApi("chat"), async (req, res) => {
+  const openid = (req.user && req.user.openid) || "";
+  const body = req.body || {};
+  const prompt = String(body.prompt || body.question || "请详细描述这张图片的内容。").trim();
+  let imageB64 = String(body.image_b64 || body.image || "").trim();
+  let mime = body.mime || "image/jpeg";
+  const imageUrl = String(body.image_url || body.url || "").trim();
+  const dataUrl = imageB64.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/);
+  if (dataUrl) {
+    mime = dataUrl[1];
+    imageB64 = dataUrl[2];
+  }
+  imageB64 = imageB64.replace(/\s+/g, "");
+  if (!imageB64 && !imageUrl) {
+    return res.status(400).json({ ok: false, error: { message: "请上传要识别的图片" } });
+  }
+
+  const arkKey = ops.getDoubaoKey() || doubaoImage.getApiKey();
+  if (!arkKey) {
+    return res.status(503).json({
+      ok: false,
+      error: {
+        message: "识图未配置：请在环境变量填写 DOUBAO_ARK_API_KEY（或 ARK_API_KEY），豆包仅用于识图",
+      },
+    });
+  }
+
+  const started = Date.now();
+  try {
+    const result = await doubaoImage.visionChat({
+      apiKey: arkKey,
+      prompt,
+      imageB64: imageB64 || "",
+      mime,
+      imageUrl: imageUrl || "",
+    });
+    if (openid) usageStore.recordChat(openid, true).catch(() => {});
+    stats.chat += 1;
+    ops.bumpHourly("chat");
+    ops.pushLatency("chat", Date.now() - started);
+    res.json({
+      ok: true,
+      product: "呆呆 AI",
+      provider: "doubao",
+      model: result.model,
+      content: result.content,
+      choices: [{ message: { role: "assistant", content: result.content } }],
+    });
+  } catch (err) {
+    if (openid) usageStore.recordChat(openid, false).catch(() => {});
+    stats.chatFail += 1;
+    const message = err instanceof Error ? err.message : String(err);
+    const status = err && err.status ? err.status : 502;
+    logApiError(
+      {
+        source: "vision",
+        message,
+        status,
+        path: "/api/vision",
+        detail: `openid=${openid}`,
+        ip: ops.clientIp(req),
+      },
+      res
+    );
+    res.status(status >= 400 && status < 600 ? status : 502).json({
+      ok: false,
+      error: { message: sanitizePublicError(message, "识图失败") },
+    });
+  }
 });
 
 const adminDir = path.join(__dirname, "admin");
