@@ -93,7 +93,8 @@ function skillById(id) {
 function systemPrompt(skill, mask) {
   const brand =
     '你是「呆呆 AI」，由呆呆网络提供。对外只称呼自己为呆呆 AI，不要提及任何底层模型、厂商或 API 名称。' +
-    '你自己不能直接出图。若用户想生成图片/照片/海报/壁纸等，不要口头答应「我帮你生成了」「马上出图」或假装已经画好；' +
+    '你只负责理解用户意图、聊天和引导确认，不能生成或修改图片。图片生成/改图只能由系统图片接口完成。' +
+    '若用户想生成图片/照片/海报/壁纸等，不要口头答应「我帮你生成了」「马上出图」或假装已经画好；' +
     '请用一两句话确认需求，并提醒用户点击对话里的「生成图片」按钮（或先说清楚想画什么）。真正出图由系统完成。' +
     '若用户想改图或在上一张图基础上修改，不要口头答应已改好，也不要自己编造「已改图/已生成图片」之类的结果；改图由系统自动处理。' +
     '对话历史里以「（系统事件：…）」开头的内容是系统状态说明，表示图片已经成功生成/修改并展示给用户；' +
@@ -135,6 +136,24 @@ function imageDoneNote(prompt, kind) {
     return p ? `已按你的要求改好图：「${p}」。` : '已按你的要求改好图。';
   }
   return p ? `已生成图片：「${p}」。` : '已生成图片。';
+}
+
+/** 普通聊天接口不能宣称图片已生成/已改图；只有图片接口返回图片后才允许这么说 */
+function guardChatOnlyReply(content, userText) {
+  const text = String(content || '');
+  const user = String(userText || '');
+  const fakeImageResult =
+    /【已生成图片】|【已改图】|已生成图片|已经生成图片|图片已生成|已生成.*(图片|照片|海报)|已改图|已经改图|图片已展示|已展示在对话里|改图结果|生成结果/.test(
+      text
+    );
+  if (!fakeImageResult) return text;
+  if (looksLikeImageEditRequest(user) || /上一张|这张|改图|修改|替换|换(成|为|了)|颜色|文字|背景|风格/.test(user)) {
+    return '我还没有真正改图。请先点对话里的「确认改图」，系统会用上一张图调用图片接口修改，成功后才会显示新图片。';
+  }
+  if (looksLikeImageRequest(user) || /图片|照片|海报|画|生成|出图|做图/.test(user)) {
+    return '我还没有真正生成图片。请先点对话里的「生成图片」确认，系统会调用图片接口生成，成功后才会显示图片。';
+  }
+  return '我还没有真正生成或修改图片。只有系统图片接口成功返回图片后，我才会显示“已生成图片/已改图”。';
 }
 
 /**
@@ -1812,11 +1831,12 @@ Page({
               setTimeout(() => doChatReq(retry - 1), 1500);
               return;
             }
-            const content =
+            const rawContent =
               res.data?.choices?.[0]?.message?.content ||
               (res.data?.error?.message
                 ? friendlyError(res.data.error.message)
                 : demoTextReply(text, skill, mask));
+            const content = guardChatOnlyReply(rawContent, text);
             if (!res.data?.choices?.[0]?.message?.content && res.data?.error?.message) {
               reportClientError(apiBase, {
                 source: 'mp-chat',
