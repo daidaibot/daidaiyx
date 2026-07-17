@@ -95,6 +95,7 @@ function systemPrompt(skill, mask) {
     '你是「呆呆 AI」，由呆呆网络提供。对外只称呼自己为呆呆 AI，不要提及任何底层模型、厂商或 API 名称。' +
     '你自己不能直接出图。若用户想生成图片/照片/海报/壁纸等，不要口头答应「我帮你生成了」「马上出图」或假装已经画好；' +
     '请用一两句话确认需求，并提醒用户点击对话里的「生成图片」按钮（或先说清楚想画什么）。真正出图由系统完成。' +
+    '若用户想改图或在上一张图基础上修改，不要口头答应已改好；系统会自动处理改图。' +
     '对话历史里若出现「【已生成图片】」或「【已改图】」，表示图片已经成功生成并展示给用户；' +
     '用户再问「看到了吗 / 这张图 / 照片」时，必须明确确认图片已生成且你清楚刚才的出图结果，禁止再说「还没生成 / 系统暂时没图 / 请稍等马上就来」。';
   if (mask && mask.prompt) {
@@ -124,8 +125,12 @@ function imageDoneNote(prompt, kind) {
     .replace(/^🎨\s*/, '')
     .replace(/^🖌️\s*/, '')
     .trim()
-    .slice(0, 80);
+    .slice(0, 120);
   if (kind === 'edit') {
+    const m = p.match(/把(.{1,40})换(成|为)(.{1,60})/);
+    if (m) {
+      return `已改图：将「${m[1].trim()}」替换为「${m[3].trim()}」。`;
+    }
     return p ? `已按你的要求改好图：「${p}」。` : '已按你的要求改好图。';
   }
   return p ? `已生成图片：「${p}」。` : '已生成图片。';
@@ -203,6 +208,45 @@ function stripImageCue(text) {
   return String(text || '')
     .replace(/^🎨\s*/, '')
     .trim();
+}
+
+function stripEditCue(text) {
+  return String(text || '')
+    .replace(/^🖌️\s*/, '')
+    .trim();
+}
+
+/** 从对话里找最近一张已完成的 AI 出图/改图结果 */
+function findLastResultImage(messages) {
+  const list = Array.isArray(messages) ? messages : [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const m = list[i];
+    if (m && m.role === 'ai' && m.image && !m.loading) {
+      return {
+        url: m.image,
+        messageId: m.id,
+        imageKind: m.imageKind || 'generate',
+      };
+    }
+  }
+  return null;
+}
+
+/** 普通聊天里识别「基于上一张图改图」意图 */
+function looksLikeImageEditRequest(text) {
+  const s = String(text || '').trim();
+  if (!s) return false;
+  if (/^🖌️/.test(s)) return true;
+  const refsPrev =
+    /这一张|这张图|刚才(的)?图|上面(那张)?图|之前(的)?图|刚生成|刚画|上一张|基于.*图|在这张|在这幅|刚才那张|上面那张/.test(
+      s
+    );
+  const editIntent =
+    /改(一下|改|图)|修改|替换|换成|改成|更改|把.{1,40}换(成|为)|去掉|加上|P掉|p掉|涂抹|微调|调整/.test(s);
+  if (refsPrev && editIntent) return true;
+  if (/^(帮我)?改图[：:]|基于上一张|在这张图(片)?上/.test(s)) return true;
+  if (/把「.+」换(成|为)「.+」|把".+"换(成|为)".+"/.test(s)) return true;
+  return false;
 }
 
 function friendlyError(msg) {
@@ -1288,6 +1332,88 @@ Page({
     return true;
   },
 
+  /** 把对话里的图片 URL 或本地路径读成 base64，供改图 API 使用 */
+  downloadImageAsB64(src) {
+    const url = this.absoluteImageUrl(src);
+    return new Promise((resolve, reject) => {
+      const readLocal = (filePath) => {
+        wx.getFileSystemManager().readFile({
+          filePath,
+          encoding: 'base64',
+          success: (r) => {
+            if (!r.data) {
+              reject(new Error('读取图片失败'));
+              return;
+            }
+            const lower = String(filePath || '').toLowerCase();
+            const mime = /\.png(\?|$)/.test(lower) ? 'image/png' : 'image/jpeg';
+            resolve({ b64: r.data, path: filePath, mime });
+          },
+          fail: () => reject(new Error('读取图片失败')),
+        });
+      };
+      if (this.isLocalImagePath(url)) {
+        readLocal(url);
+        return;
+      }
+      wx.downloadFile({
+        url,
+        success: (res) => {
+          if (res.statusCode === 200 && res.tempFilePath) {
+            readLocal(res.tempFilePath);
+            return;
+          }
+          reject(new Error(`下载图片失败 ${res.statusCode || ''}`));
+        },
+        fail: (err) =>
+          reject(new Error((err && err.errMsg) || '下载图片失败，请检查 downloadFile 合法域名')),
+      });
+    });
+  },
+
+  /** 普通聊天里：基于上一张出图结果直接改图 */
+  startChatImageEdit(text, ref) {
+    const prompt = stripEditCue(text);
+    if (!prompt) return;
+    const userMsg = { id: uid(), role: 'user', content: text };
+    const aiId = uid();
+    this.pushMessages(
+      [
+        userMsg,
+        {
+          id: aiId,
+          role: 'ai',
+          content: '呆呆 AI 正在改图…',
+          loading: true,
+        },
+      ],
+      {
+        input: '',
+        canSend: false,
+        busy: true,
+      }
+    );
+    this.saveCurrentSession();
+    this.downloadImageAsB64((ref && ref.url) || '')
+      .then(({ b64, path, mime }) => {
+        this.sendImageEdit(prompt, {
+          skipUserBubble: true,
+          aiId,
+          imagePath: path,
+          imageB64: b64,
+          mime,
+          userContent: text,
+        });
+      })
+      .catch((err) => {
+        this.updateMessage(aiId, {
+          loading: false,
+          content: (err && err.message) || '无法读取上一张图片，请重试或手动上传改图。',
+        });
+        this.setData({ busy: false }, () => this.saveCurrentSession());
+      });
+  },
+
   previewImage(e) {
     const raw = e.currentTarget.dataset.src;
     const src = this.absoluteImageUrl(raw);
@@ -1394,6 +1520,12 @@ Page({
       // 生图技能 / 聊天里识别到出图意向 → 先确认再真正调用生图
       if (this.data.activeSkill === 'image' || looksLikeImageRequest(text)) {
         this.offerImageConfirm(text);
+        return;
+      }
+      // 聊天里基于上一张图改图（如「在这一张的基础上把…换成…」）
+      const lastImg = findLastResultImage(this.data.messages);
+      if (lastImg && looksLikeImageEditRequest(text)) {
+        this.startChatImageEdit(text, lastImg);
         return;
       }
       this.sendText(text);
@@ -1895,50 +2027,86 @@ Page({
     setTimeout(tick, 1500);
   },
 
-  sendImageEdit(prompt) {
-    if (!this.data.editImagePath || !this.data.editImageB64) {
+  sendImageEdit(prompt, opts) {
+    const options = opts || {};
+    const skipUserBubble = !!options.skipUserBubble;
+    const reuseAiId = options.aiId;
+    const imagePath = options.imagePath || this.data.editImagePath;
+    const imageB64 = options.imageB64 || this.data.editImageB64;
+    const mime = options.mime || this.data.editMime || 'image/jpeg';
+    const userContent = options.userContent || `🖌️ ${prompt}`;
+
+    if (!imageB64) {
       wx.showToast({ title: '请先上传图片', icon: 'none' });
-      this.pickEditImage();
+      if (!skipUserBubble) this.pickEditImage();
       return;
     }
 
-    const srcPath = this.data.editImagePath;
-    const userMsg = {
-      id: uid(),
-      role: 'user',
-      content: `🖌️ ${prompt}`,
-      image: srcPath,
-    };
-    const aiId = uid();
-    this.pushMessages(
-      [
-        userMsg,
-        {
-          id: aiId,
-          role: 'ai',
-          content: '呆呆 AI 正在改图…',
-          loading: true,
-        },
-      ],
-      {
+    const aiId = reuseAiId || uid();
+    if (reuseAiId) {
+      this.updateMessage(aiId, {
+        role: 'ai',
+        content: '呆呆 AI 正在改图…',
+        loading: true,
+        image: '',
+      });
+      this.setData({
         input: '',
         canSend: false,
         busy: true,
-      }
-    );
+        scrollInto: `m-${aiId}`,
+      });
+    } else if (skipUserBubble) {
+      this.pushMessages(
+        [
+          {
+            id: aiId,
+            role: 'ai',
+            content: '呆呆 AI 正在改图…',
+            loading: true,
+          },
+        ],
+        {
+          input: '',
+          canSend: false,
+          busy: true,
+        }
+      );
+    } else {
+      const userMsg = {
+        id: uid(),
+        role: 'user',
+        content: userContent,
+        image: imagePath,
+      };
+      this.pushMessages(
+        [
+          userMsg,
+          {
+            id: aiId,
+            role: 'ai',
+            content: '呆呆 AI 正在改图…',
+            loading: true,
+          },
+        ],
+        {
+          input: '',
+          canSend: false,
+          busy: true,
+        }
+      );
+    }
 
     const app = getApp();
     const apiBase = (app.globalData && app.globalData.apiBase) || '';
     const size = this.data.imageSize;
-    const mime = this.data.editMime || 'image/jpeg';
-    const image_b64 = this.data.editImageB64;
 
     if (!apiBase) {
       setTimeout(() => {
         this.updateMessage(aiId, {
           loading: false,
           content: `呆呆 AI 已收到改图需求：「${prompt.slice(0, 40)}」\n请先配置服务后再生成真实结果。`,
-          image: srcPath,
+          image: imagePath,
         });
         this.setData({ busy: false, canSend: false }, () => {
           this.finishVisualSkillAfterDone();
@@ -1955,7 +2123,7 @@ Page({
       header: Object.assign({ 'content-type': 'application/json' }, authHeader()),
       data: {
         prompt,
-        image_b64,
+        image_b64: imageB64,
         mime,
         size,
       },
