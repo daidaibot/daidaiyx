@@ -420,18 +420,18 @@
         <view class="profile-stats">
           <view class="profile-stat">
             <view class="profile-stat-num {{isMember ? 'vip' : ''}}">
-              {{isMember ? '∞' : (profile ? profile.quotaText : '—')}}
+              {{isMember ? '∞' : profile.quotaText}}
             </view>
             <view class="profile-stat-label">今日生图额度</view>
           </view>
           <view class="profile-stat-divider"></view>
           <view class="profile-stat">
-            <view class="profile-stat-num">{{profile ? profile.chatToday : '—'}}</view>
+            <view class="profile-stat-num">{{profile.chatToday}}</view>
             <view class="profile-stat-label">今日对话</view>
           </view>
           <view class="profile-stat-divider"></view>
           <view class="profile-stat">
-            <view class="profile-stat-num">{{profile ? profile.imageToday : '—'}}</view>
+            <view class="profile-stat-num">{{profile.imageToday}}</view>
             <view class="profile-stat-label">今日出图</view>
           </view>
         </view>
@@ -442,7 +442,7 @@
         </view>
         <view wx:else class="profile-perks">
           <view class="perk-row muted"><text class="perk-ico">🎨</text>每天免费生图 / 改图共 2 次</view>
-          <view class="perk-row muted"><text class="perk-ico">👑</text>会员可不限次数，详询管理员开通</view>
+          <view class="perk-row muted"><text class="perk-ico">👑</text>会员可享不限次数与更好的体验</view>
         </view>
 
         <view wx:if="{{memberSinceText}}" class="profile-joined">加入于 {{memberSinceText}}</view>

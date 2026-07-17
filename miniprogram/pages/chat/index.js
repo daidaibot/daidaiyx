@@ -433,7 +433,15 @@ Page({
     showDrawer: false,
     showProfile: false,
     profileLoading: false,
-    profile: null,
+    profile: {
+      nickName: '用户',
+      avatarUrl: '',
+      account: '',
+      isMember: false,
+      quotaText: '剩余 2 / 2 次',
+      chatToday: 0,
+      imageToday: 0,
+    },
     isMember: false,
     memberSinceText: '',
     historyList: [],
@@ -887,7 +895,15 @@ Page({
       welcomeSub: '游客可逛 · 使用功能需登录',
       navSub: '游客模式',
       showProfile: false,
-      profile: null,
+      profile: {
+        nickName: '用户',
+        avatarUrl: '',
+        account: '',
+        isMember: false,
+        quotaText: '剩余 2 / 2 次',
+        chatToday: 0,
+        imageToday: 0,
+      },
       isMember: false,
       memberSinceText: '',
     });
@@ -914,7 +930,7 @@ Page({
   fetchMyProfile(opts = {}) {
     const app = getApp();
     const apiBase = ((app.globalData && app.globalData.apiBase) || '').replace(/\/$/, '');
-    if (!apiBase || !isLoggedIn()) return Promise.resolve(null);
+    if (!apiBase || !isLoggedIn()) return Promise.resolve(this.data.profile || null);
     if (!opts.silent) this.setData({ profileLoading: true });
     return new Promise((resolve) => {
       wx.request({
@@ -956,11 +972,11 @@ Page({
             return;
           }
           this.setData({ profileLoading: false });
-          resolve(null);
+          resolve(this.data.profile || null);
         },
         fail: () => {
           this.setData({ profileLoading: false });
-          resolve(null);
+          resolve(this.data.profile || null);
         },
       });
     });
