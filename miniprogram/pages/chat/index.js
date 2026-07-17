@@ -1438,7 +1438,7 @@ Page({
           imagePath: path,
           imageB64: b64,
           mime,
-          userContent: text,
+          userContent: userContent || prompt,
         });
       })
       .catch((err) => {
