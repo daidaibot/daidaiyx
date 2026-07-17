@@ -58,7 +58,7 @@ function titleFromMessages(messages) {
 }
 
 function previewFromMessages(messages) {
-  const last = [...(messages || [])].reverse().find((m) => m.content || m.image);
+  const last = (messages || []).slice().reverse().find((m) => m.content || m.image);
   if (!last) return "";
   if (last.image && !last.content) return "[图片]";
   return String(last.content || "")

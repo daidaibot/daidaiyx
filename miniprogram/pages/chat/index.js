@@ -537,7 +537,7 @@ Page({
       this.setData(
         {
           sessionId: sess.id,
-          messages: sess.messages.map((m) => ({ ...m, loading: false })),
+          messages: sess.messages.map((m) => Object.assign({}, m, { loading: false })),
           activeSkill: meta.activeSkill || '',
           skillLabel: meta.skillLabel || '',
           activeMask: meta.activeMask || '',
@@ -1172,21 +1172,20 @@ Page({
       });
       return;
     }
-    this.setData(
-      {
-        activeSkill: id,
-        skillLabel: skill.name,
-        placeholder: skill.placeholder,
-        showSheet: false,
-        imageSize: this.defaultSizeForSkill(id),
-        ...(id !== 'edit'
-          ? { editImagePath: '', editImageB64: '' }
-          : {}),
-      },
-      () => {
-        this.setData({ canSend: this.computeCanSend(this.data.input) });
-      }
-    );
+    const patch = {
+      activeSkill: id,
+      skillLabel: skill.name,
+      placeholder: skill.placeholder,
+      showSheet: false,
+      imageSize: this.defaultSizeForSkill(id),
+    };
+    if (id !== 'edit') {
+      patch.editImagePath = '';
+      patch.editImageB64 = '';
+    }
+    this.setData(patch, () => {
+      this.setData({ canSend: this.computeCanSend(this.data.input) });
+    });
   },
 
   onSkill(e) {
@@ -1549,16 +1548,20 @@ Page({
   },
 
   pushMessages(list, extra = {}) {
-    this.setData({
-      messages: this.data.messages.concat(list),
-      scrollInto: 'm-bottom',
-      ...extra,
-    });
+    this.setData(
+      Object.assign(
+        {
+          messages: this.data.messages.concat(list),
+          scrollInto: 'm-bottom',
+        },
+        extra
+      )
+    );
   },
 
   updateMessage(id, patch) {
     const messages = this.data.messages.map((m) =>
-      m.id === id ? { ...m, ...patch } : m
+      m.id === id ? Object.assign({}, m, patch) : m
     );
     this.setData({ messages, scrollInto: 'm-bottom' });
   },
@@ -1613,11 +1616,9 @@ Page({
           header: Object.assign({ 'content-type': 'application/json' }, authHeader()),
           data: {
             stream: false,
-            messages: [
-              { role: 'system', content: systemPrompt(skill, mask) },
-              ...history,
-              { role: 'user', content: apiText },
-            ],
+            messages: [{ role: 'system', content: systemPrompt(skill, mask) }]
+              .concat(history)
+              .concat([{ role: 'user', content: apiText }]),
           },
           success: (res) => {
             // 503（实例冷启动 / 数据库唤醒中）自动重试一次，避免“掉线”假象
