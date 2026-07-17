@@ -559,13 +559,46 @@ async function loadAlerts() {
     : `<tr><td colspan="5" class="muted">今日暂无用量</td></tr>`;
 }
 
+let detailSessions = [];
+
+function showSessionsView() {
+  document.getElementById("userSessionsView").classList.remove("hidden");
+  document.getElementById("userChatView").classList.add("hidden");
+}
+function showChatView() {
+  document.getElementById("userSessionsView").classList.add("hidden");
+  document.getElementById("userChatView").classList.remove("hidden");
+}
+
+function renderSessionsList(openid) {
+  const box = document.getElementById("userSessionsList");
+  if (!detailSessions.length) {
+    box.innerHTML = `<div class="muted">暂无云端会话（需用户登录并同步聊天记录）</div>`;
+    return;
+  }
+  box.innerHTML = detailSessions
+    .map(
+      (s) =>
+        `<button type="button" class="session-item" data-openid="${esc(openid)}" data-sid="${esc(
+          s.id
+        )}">
+          <div class="session-title">${esc(s.title || "对话")}</div>
+          <div class="muted small">${esc(s.preview || "")}</div>
+          <div class="muted small">${fmtTime(s.updatedAt)}</div>
+        </button>`
+    )
+    .join("");
+}
+
 async function openUserDetail(openid, name) {
   const mask = document.getElementById("userDetailMask");
   const sheet = document.getElementById("userDetailSheet");
   document.getElementById("userDetailTitle").textContent = `用户 · ${name || openid}`;
   document.getElementById("userDetailStats").textContent = "加载中…";
   document.getElementById("userSessionsList").innerHTML = "加载中…";
-  document.getElementById("userSessionMessages").textContent = "点选会话查看";
+  document.getElementById("userChatThread").innerHTML = "";
+  detailSessions = [];
+  showSessionsView();
   mask.classList.remove("hidden");
   sheet.classList.remove("hidden");
 
@@ -586,24 +619,13 @@ async function openUserDetail(openid, name) {
       `今日改图：成功 ${t.imageEditOk || 0} / 失败 ${t.imageEditFail || 0}`,
     ].join("\n");
 
-    const sessions = sessData.sessions || [];
-    const box = document.getElementById("userSessionsList");
-    if (!sessions.length) {
-      box.innerHTML = `<div class="muted">暂无云端会话（需用户登录并同步聊天记录）</div>`;
-      return;
+    detailSessions = sessData.sessions || [];
+    renderSessionsList(openid);
+
+    // 只有一个会话就直接进入对话；多个会话先让管理员选
+    if (detailSessions.length === 1) {
+      openUserSession(openid, detailSessions[0].id, detailSessions[0].title);
     }
-    box.innerHTML = sessions
-      .map(
-        (s) =>
-          `<button type="button" class="session-item" data-openid="${esc(openid)}" data-sid="${esc(
-            s.id
-          )}">
-            <div class="session-title">${esc(s.title || "对话")}</div>
-            <div class="muted small">${esc(s.preview || "")}</div>
-            <div class="muted small">${fmtTime(s.updatedAt)}</div>
-          </button>`
-      )
-      .join("");
   } catch (err) {
     document.getElementById("userDetailStats").textContent = err.message || "加载失败";
   }
@@ -614,26 +636,46 @@ function closeUserDetail() {
   document.getElementById("userDetailSheet").classList.add("hidden");
 }
 
-async function openUserSession(openid, sessionId) {
-  const el = document.getElementById("userSessionMessages");
-  el.textContent = "加载中…";
+function renderChatThread(msgs) {
+  if (!msgs.length) return `<div class="muted">无消息</div>`;
+  return msgs
+    .map((m) => {
+      const isUser = m.role === "user";
+      const who = isUser ? "用户" : "呆呆 AI";
+      const text = m.content ? `<div class="chat-text">${esc(m.content)}</div>` : "";
+      let img = "";
+      if (m.image) {
+        const ref = String(m.image);
+        const src = /^(https?:|\/)/.test(ref) ? ref : "";
+        img = src
+          ? `<img class="chat-img" src="${esc(src)}" alt="图片" loading="lazy" />`
+          : `<div class="muted small">[图片]</div>`;
+      }
+      return `<div class="chat-row ${isUser ? "user" : "ai"}">
+        <div class="chat-who">${who}</div>
+        <div class="chat-bubble">${text}${img}</div>
+      </div>`;
+    })
+    .join("");
+}
+
+async function openUserSession(openid, sessionId, title) {
+  showChatView();
+  const el = document.getElementById("userChatThread");
+  const titleEl = document.getElementById("userChatTitle");
+  if (titleEl) titleEl.textContent = title || "";
+  // 只有一个会话时隐藏返回按钮意义不大，这里始终保留可返回
+  el.innerHTML = `<div class="muted">加载中…</div>`;
   try {
     const data = await api(
       `/api/admin/users/${encodeURIComponent(openid)}/sessions/${encodeURIComponent(sessionId)}`
     );
     const msgs = (data.session && data.session.messages) || [];
-    el.textContent = msgs.length
-      ? msgs
-          .map((m) => {
-            const role = m.role === "user" ? "用户" : "AI";
-            const text = String(m.content || "").slice(0, 800);
-            const img = m.image ? "\n[图片]" : "";
-            return `【${role}】${text}${img}`;
-          })
-          .join("\n\n——\n\n")
-      : "无消息";
+    if (titleEl && data.session && data.session.title) titleEl.textContent = data.session.title;
+    el.innerHTML = renderChatThread(msgs);
+    el.scrollTop = 0;
   } catch (err) {
-    el.textContent = err.message || "加载失败";
+    el.innerHTML = `<div class="muted">${esc(err.message || "加载失败")}</div>`;
   }
 }
 
@@ -1110,11 +1152,18 @@ if (userSessionsList) {
   userSessionsList.addEventListener("click", (e) => {
     const item = e.target.closest("[data-sid]");
     if (!item) return;
-    openUserSession(item.getAttribute("data-openid"), item.getAttribute("data-sid")).catch(
-      (err) => toast(err.message, "bad")
-    );
+    const sid = item.getAttribute("data-sid");
+    const sess = detailSessions.find((s) => String(s.id) === String(sid));
+    openUserSession(
+      item.getAttribute("data-openid"),
+      sid,
+      (sess && sess.title) || ""
+    ).catch((err) => toast(err.message, "bad"));
   });
 }
+
+const userChatBack = document.getElementById("userChatBack");
+if (userChatBack) userChatBack.addEventListener("click", showSessionsView);
 
 (async function boot() {
   if (!token()) {

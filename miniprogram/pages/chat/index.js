@@ -1605,47 +1605,60 @@ Page({
     const apiBase = (app.globalData && app.globalData.apiBase) || '';
 
     if (apiBase) {
-      wx.request({
-        url: `${apiBase.replace(/\/$/, '')}/api/chat`,
-        method: 'POST',
-        timeout: 120000,
-        header: Object.assign({ 'content-type': 'application/json' }, authHeader()),
-        data: {
-          stream: false,
-          messages: [
-            { role: 'system', content: systemPrompt(skill, mask) },
-            ...history,
-            { role: 'user', content: apiText },
-          ],
-        },
-        success: (res) => {
-          const content =
-            res.data?.choices?.[0]?.message?.content ||
-            (res.data?.error?.message
-              ? friendlyError(res.data.error.message)
-              : demoTextReply(text, skill, mask));
-          if (!res.data?.choices?.[0]?.message?.content && res.data?.error?.message) {
+      const doChatReq = (retry) => {
+        wx.request({
+          url: `${apiBase.replace(/\/$/, '')}/api/chat`,
+          method: 'POST',
+          timeout: 120000,
+          header: Object.assign({ 'content-type': 'application/json' }, authHeader()),
+          data: {
+            stream: false,
+            messages: [
+              { role: 'system', content: systemPrompt(skill, mask) },
+              ...history,
+              { role: 'user', content: apiText },
+            ],
+          },
+          success: (res) => {
+            // 503（实例冷启动 / 数据库唤醒中）自动重试一次，避免“掉线”假象
+            if (res.statusCode === 503 && retry > 0) {
+              setTimeout(() => doChatReq(retry - 1), 1500);
+              return;
+            }
+            const content =
+              res.data?.choices?.[0]?.message?.content ||
+              (res.data?.error?.message
+                ? friendlyError(res.data.error.message)
+                : demoTextReply(text, skill, mask));
+            if (!res.data?.choices?.[0]?.message?.content && res.data?.error?.message) {
+              reportClientError(apiBase, {
+                source: 'mp-chat',
+                message: res.data.error.message,
+                status: res.statusCode,
+                path: '/api/chat',
+                detail: text.slice(0, 100),
+              });
+            }
+            this.typeOut(aiId, content);
+          },
+          fail: (err) => {
+            // 网络错误 / 超时（多为冷启动）自动重试一次
+            if (retry > 0) {
+              setTimeout(() => doChatReq(retry - 1), 1500);
+              return;
+            }
             reportClientError(apiBase, {
               source: 'mp-chat',
-              message: res.data.error.message,
-              status: res.statusCode,
+              message: (err && err.errMsg) || '网络异常',
+              status: 'network',
               path: '/api/chat',
               detail: text.slice(0, 100),
             });
-          }
-          this.typeOut(aiId, content);
-        },
-        fail: (err) => {
-          reportClientError(apiBase, {
-            source: 'mp-chat',
-            message: (err && err.errMsg) || '网络异常',
-            status: 'network',
-            path: '/api/chat',
-            detail: text.slice(0, 100),
-          });
-          this.typeOut(aiId, demoTextReply(text, skill, mask));
-        },
-      });
+            this.typeOut(aiId, demoTextReply(text, skill, mask));
+          },
+        });
+      };
+      doChatReq(1);
       return;
     }
 

@@ -2215,4 +2215,12 @@ app.listen(PORT, "0.0.0.0", async () => {
   setInterval(() => {
     imageOut.cleanupOldImages().catch(() => {});
   }, 6 * 3600 * 1000).unref?.();
+
+  // 轻量保活：定时 ping 数据库，让 Serverless MySQL 保持热连接，
+  // 减少冷启动/唤醒导致的首个请求超时（“掉线”）。
+  setInterval(() => {
+    if (db.isReady()) {
+      db.query("SELECT 1").catch(() => {});
+    }
+  }, 60 * 1000).unref?.();
 });

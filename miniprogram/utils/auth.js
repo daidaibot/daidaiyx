@@ -77,7 +77,7 @@ function apiBase() {
   }
 }
 
-function postAuth(path, data) {
+function postAuth(path, data, retry = 1) {
   return new Promise((resolve, reject) => {
     const base = apiBase();
     if (!base) {
@@ -104,6 +104,11 @@ function postAuth(path, data) {
           resolve(body);
           return;
         }
+        // 503（实例冷启动 / 数据库唤醒中）自动重试一次
+        if (res.statusCode === 503 && retry > 0) {
+          setTimeout(() => postAuth(path, data, retry - 1).then(resolve, reject), 1500);
+          return;
+        }
         reject(
           new Error(
             (body.error && body.error.message) ||
@@ -112,8 +117,14 @@ function postAuth(path, data) {
           )
         );
       },
-      fail: (err) =>
-        reject(new Error((err && err.errMsg) || '网络错误，请稍后再试')),
+      fail: (err) => {
+        // 网络错误 / 超时（多为冷启动）自动重试一次
+        if (retry > 0) {
+          setTimeout(() => postAuth(path, data, retry - 1).then(resolve, reject), 1500);
+          return;
+        }
+        reject(new Error((err && err.errMsg) || '网络错误，请稍后再试'));
+      },
     });
   });
 }

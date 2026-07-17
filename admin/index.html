@@ -198,10 +198,21 @@
           <button type="button" class="btn ghost sm" id="userDetailClose">关闭</button>
         </div>
         <pre id="userDetailStats" class="probe-out">—</pre>
-        <div class="box-h">会话列表</div>
-        <div id="userSessionsList" class="user-sessions">—</div>
-        <div class="box-h">会话内容</div>
-        <pre id="userSessionMessages" class="probe-out">点选左侧会话查看</pre>
+
+        <!-- 多会话时先选择 -->
+        <div id="userSessionsView">
+          <div class="box-h">选择会话</div>
+          <div id="userSessionsList" class="user-sessions">—</div>
+        </div>
+
+        <!-- 具体对话（用户 ↔ AI） -->
+        <div id="userChatView" class="hidden">
+          <div class="box-h-row">
+            <button type="button" class="btn ghost sm" id="userChatBack">← 返回会话列表</button>
+            <span class="muted small" id="userChatTitle"></span>
+          </div>
+          <div id="userChatThread" class="chat-thread">—</div>
+        </div>
       </div>
 
       <!-- 运维配置：密钥 + 设置 + 能力 -->
